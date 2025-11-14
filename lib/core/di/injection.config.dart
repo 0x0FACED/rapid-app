@@ -70,6 +70,8 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i810.TransferManager>(),
           gh<_i855.SendFilesUseCase>(),
           gh<_i408.ReceiveFilesUseCase>(),
+          gh<_i756.HttpServerService>(),
+          gh<_i557.ApiClient>(),
         ));
     return this;
   }

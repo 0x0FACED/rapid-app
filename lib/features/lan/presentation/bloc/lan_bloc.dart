@@ -379,6 +379,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   Future<void> close() {
     _devicesSubscription?.cancel();
     _transfersSubscription?.cancel(); // НОВОЕ
+    _incomingTextsSubscription?.cancel();
     return super.close();
   }
 }
