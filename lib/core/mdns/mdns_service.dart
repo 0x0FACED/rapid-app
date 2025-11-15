@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:multicast_dns/multicast_dns.dart';
 import 'package:injectable/injectable.dart';
 import '../storage/shared_prefs_service.dart';

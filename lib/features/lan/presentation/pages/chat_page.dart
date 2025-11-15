@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:rapid/core/mdns/device_discovery.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/services/chat_service.dart';
 import '../../domain/entities/device.dart';
@@ -23,11 +26,38 @@ class _ChatPageState extends State<ChatPage> {
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
 
+  bool _isDeviceOnline = true; // НОВОЕ: статус устройства
+  StreamSubscription? _devicesSubscription; // НОВОЕ
+
+  @override
+  void initState() {
+    super.initState();
+    _startMonitoringDevice();
+  }
+
   @override
   void dispose() {
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // НОВОЕ: Мониторинг доступности устройства
+  void _startMonitoringDevice() {
+    try {
+      final discovery = getIt<DeviceDiscovery>();
+      _devicesSubscription = discovery.devicesStream.listen((devices) {
+        final isOnline = devices.any((d) => d.id == widget.device.id);
+
+        if (_isDeviceOnline != isOnline) {
+          setState(() {
+            _isDeviceOnline = isOnline;
+          });
+        }
+      });
+    } catch (e) {
+      print('[Chat] Failed to monitor device: $e');
+    }
   }
 
   @override
@@ -38,12 +68,28 @@ class _ChatPageState extends State<ChatPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.device.name),
-            Text(
-              'Online',
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.tertiary,
-              ),
+            Row(
+              children: [
+                // НОВОЕ: Индикатор статуса
+                Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: BoxDecoration(
+                    color: _isDeviceOnline ? Colors.green : Colors.grey,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Text(
+                  _isDeviceOnline ? 'Online' : 'Offline',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _isDeviceOnline
+                        ? Theme.of(context).colorScheme.tertiary
+                        : Colors.grey,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -148,12 +194,17 @@ class _ChatPageState extends State<ChatPage> {
                       ),
                       maxLines: null,
                       textCapitalization: TextCapitalization.sentences,
+                      onSubmitted: (_) => _sendMessage(),
+                      enabled: _isDeviceOnline, // НОВОЕ: Отключаем если offline
                     ),
                   ),
                   const SizedBox(width: 12),
                   FloatingActionButton(
-                    onPressed: _sendMessage,
+                    onPressed: _isDeviceOnline ? _sendMessage : null, // НОВОЕ
                     mini: true,
+                    backgroundColor: _isDeviceOnline
+                        ? null
+                        : Colors.grey, // НОВОЕ
                     child: const Icon(Icons.send_rounded),
                   ),
                 ],
@@ -246,9 +297,9 @@ class _MessageBubble extends StatelessWidget {
             const SizedBox(width: 8),
           ],
           Flexible(
+            // НОВОЕ: GestureDetector с long press
             child: GestureDetector(
-              // НОВОЕ: Long press для копирования
-              onLongPress: () => _showMessageOptions(context, message),
+              onLongPress: () => _showContextMenu(context, message),
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -280,7 +331,7 @@ class _MessageBubble extends StatelessWidget {
                           ),
                         ),
                       ),
-                    // НОВОЕ: SelectableText для выделения внутри
+                    // НОВОЕ: SelectableText для выделения части текста
                     SelectableText(
                       message.text,
                       style: TextStyle(
@@ -288,6 +339,10 @@ class _MessageBubble extends StatelessWidget {
                             ? Colors.white
                             : Theme.of(context).colorScheme.onSurface,
                       ),
+                      // Убираем toolbar чтобы не конфликтовал с нашим меню
+                      contextMenuBuilder: (context, editableTextState) {
+                        return const SizedBox.shrink();
+                      },
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -310,122 +365,172 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  void _showMessageOptions(BuildContext context, ChatMessage message) {
-    showModalBottomSheet(
+  void _showContextMenu(BuildContext context, ChatMessage message) {
+    showGeneralDialog(
       context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle bar
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 40),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(2),
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
               ),
-            ),
-
-            // Превью сообщения
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.message_rounded,
-                      size: 20,
-                      color: Theme.of(context).colorScheme.primary,
+              clipBehavior: Clip.antiAlias, // ВАЖНО для ripple
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Превью сообщения
+                  Container(
+                    margin: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        message.text,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.message_rounded,
+                          size: 20,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            message.text,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Divider(height: 1),
+
+                  // ИСПРАВЛЕНО: Material + InkWell для ripple
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.pop(context);
+                        _copyMessage(context, message);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 16,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.copy_rounded,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 16),
+                            const Text('Copy', style: TextStyle(fontSize: 16)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Кнопка удаления
+                  if (message.isSentByMe) ...[
+                    const Divider(height: 1),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Delete - coming soon'),
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 16,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.delete_rounded,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                              const SizedBox(width: 16),
+                              Text(
+                                'Delete',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ],
-                ),
+
+                  const SizedBox(height: 8),
+                ],
               ),
             ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return ScaleTransition(
+          scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+          child: FadeTransition(opacity: animation, child: child),
+        );
+      },
+    );
+  }
 
-            const Divider(height: 1),
+  void _copyMessage(BuildContext context, ChatMessage message) {
+    Clipboard.setData(ClipboardData(text: message.text));
 
-            // Опция копирования
-            ListTile(
-              leading: Icon(
-                Icons.copy_rounded,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              title: const Text('Copy message'),
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: message.text));
-                Navigator.pop(context);
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        Icon(
-                          Icons.check_circle_rounded,
-                          color: Theme.of(context).colorScheme.tertiary,
-                        ),
-                        const SizedBox(width: 12),
-                        const Text('Message copied to clipboard'),
-                      ],
-                    ),
-                    backgroundColor: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              },
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.check_circle_rounded,
+              color: Theme.of(context).colorScheme.tertiary,
+              size: 20,
             ),
-
-            // Опция удаления (опционально)
-            if (message.isSentByMe)
-              ListTile(
-                leading: Icon(
-                  Icons.delete_rounded,
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                title: Text(
-                  'Delete message',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  // TODO: Реализовать удаление сообщения
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Delete message - coming soon'),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
-                },
-              ),
-
-            const SizedBox(height: 8),
+            const SizedBox(width: 12),
+            const Text('Copied to clipboard'),
           ],
         ),
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 1),
+        margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
       ),
     );
   }
