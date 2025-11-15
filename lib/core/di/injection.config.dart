@@ -28,6 +28,8 @@ import '../network/broadcast_discovery.dart' as _i855;
 import '../network/certificate_manager.dart' as _i531;
 import '../network/http_server.dart' as _i756;
 import '../network/transfer_manager.dart' as _i810;
+import '../services/chat_service.dart' as _i698;
+import '../services/notification_service.dart' as _i941;
 import '../storage/shared_prefs_service.dart' as _i573;
 
 extension GetItInjectableX on _i174.GetIt {
@@ -43,17 +45,21 @@ extension GetItInjectableX on _i174.GetIt {
     );
     gh.lazySingleton<_i531.CertificateManager>(
         () => _i531.CertificateManager());
+    gh.lazySingleton<_i981.BroadcastAnnouncer>(
+        () => _i981.BroadcastAnnouncer());
     gh.lazySingleton<_i810.TransferManager>(() => _i810.TransferManager());
     gh.lazySingleton<_i557.ApiClient>(() => _i557.ApiClient());
     gh.lazySingleton<_i573.SharedPrefsService>(
         () => _i573.SharedPrefsService());
     gh.lazySingleton<_i100.ServiceAnnouncer>(() => _i100.ServiceAnnouncer());
-    gh.lazySingleton<_i981.BroadcastAnnouncer>(
-        () => _i981.BroadcastAnnouncer());
-    gh.lazySingleton<_i398.MDnsService>(
-        () => _i398.MDnsService(gh<_i573.SharedPrefsService>()));
+    gh.lazySingleton<_i941.NotificationService>(
+        () => _i941.NotificationService());
     gh.lazySingleton<_i855.BroadcastDiscovery>(
         () => _i855.BroadcastDiscovery(gh<_i573.SharedPrefsService>()));
+    gh.lazySingleton<_i398.MDnsService>(
+        () => _i398.MDnsService(gh<_i573.SharedPrefsService>()));
+    gh.lazySingleton<_i698.ChatService>(
+        () => _i698.ChatService(gh<_i573.SharedPrefsService>()));
     gh.factory<_i408.ReceiveFilesUseCase>(() => _i408.ReceiveFilesUseCase(
           gh<_i557.ApiClient>(),
           gh<_i810.TransferManager>(),
@@ -79,6 +85,8 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i408.ReceiveFilesUseCase>(),
           gh<_i756.HttpServerService>(),
           gh<_i557.ApiClient>(),
+          gh<_i941.NotificationService>(),
+          gh<_i698.ChatService>(),
         ));
     return this;
   }

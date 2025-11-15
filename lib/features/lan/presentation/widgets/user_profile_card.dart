@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:rapid/features/lan/presentation/pages/notification_page.dart';
 import '../../../settings/domain/entities/user_settings.dart';
+import '../../../../core/di/injection.dart';
+import '../../../../core/services/notification_service.dart';
 
 class UserProfileCard extends StatelessWidget {
   final UserSettings settings;
@@ -9,6 +12,8 @@ class UserProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final notificationService = getIt<NotificationService>();
+
     return Card(
       margin: const EdgeInsets.all(16),
       elevation: 4,
@@ -96,11 +101,52 @@ class UserProfileCard extends StatelessWidget {
               ),
             ),
 
-            // Кнопка настроек
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () {
-                // TODO: Navigate to settings
+            // НОВОЕ: Кнопка уведомлений с badge
+            StreamBuilder<List>(
+              stream: notificationService.notificationsStream,
+              initialData: notificationService.notifications,
+              builder: (context, snapshot) {
+                final unreadCount = notificationService.unreadCount;
+
+                return Stack(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.notifications),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const NotificationsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    if (unreadCount > 0)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          child: Text(
+                            unreadCount > 9 ? '9+' : '$unreadCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
               },
             ),
           ],
@@ -109,7 +155,6 @@ class UserProfileCard extends StatelessWidget {
     );
   }
 
-  /// Получить инициалы из имени
   String _getInitials(String name) {
     final parts = name.trim().split(' ');
     if (parts.isEmpty) return '?';
@@ -121,7 +166,6 @@ class UserProfileCard extends StatelessWidget {
     return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
   }
 
-  /// Определить тип устройства
   String _getDeviceType() {
     return Platform.isAndroid
         ? 'Android'

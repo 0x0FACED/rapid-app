@@ -81,6 +81,8 @@ dependencies:
 
   image_picker: ^1.0.7
 
+  timeago: ^3.7.0
+
 
 dev_dependencies:
   flutter_test:

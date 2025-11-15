@@ -61,12 +61,22 @@ class DeviceDiscovery {
       _devices.add(device);
     }
 
-    _devicesController.add(_devices);
+    _devicesController.add(List.from(_devices));
   }
 
   // НОВОЕ: Обработка удаления устройства
   void _onDeviceRemoved(String deviceId) {
+    final len = _devices.length;
     _devices.removeWhere((d) => d.id == deviceId);
+
+    if (_devices.length < len) {
+      print('[Discovery] ✅ Device removed: $deviceId');
+
+      // ВАЖНО: Создаём НОВЫЙ список
+      _devicesController.add(List.from(_devices));
+
+      print('[Discovery] Emitted new list with ${_devices.length} devices');
+    }
   }
 
   Future<void> stop() async {

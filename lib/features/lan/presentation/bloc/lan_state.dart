@@ -13,13 +13,12 @@ class LanLoading extends LanState {}
 
 class LanLoaded extends LanState {
   final UserSettings userSettings;
-  final bool isShareMode; // true = Share, false = Receive
-  final List<SharedFile> sharedFiles; // Файлы, которые мы расшарили
-  final List<Device> availableDevices; // Доступные устройства в сети
-  final Device? selectedDevice; // Выбранное устройство для просмотра
-  final List<SharedFile>? receivedFiles; // Файлы от выбранного устройства
-  final List<TransferProgressModel> activeTransfers; // НОВОЕ
-  final int _updateCounter;
+  final bool isShareMode;
+  final List<SharedFile> sharedFiles;
+  final List<Device> availableDevices;
+  final Device? selectedDevice;
+  final List<SharedFile>? receivedFiles;
+  final List<TransferProgressModel> activeTransfers;
 
   const LanLoaded({
     required this.userSettings,
@@ -28,42 +27,35 @@ class LanLoaded extends LanState {
     this.availableDevices = const [],
     this.selectedDevice,
     this.receivedFiles,
-    this.activeTransfers = const [], // НОВОЕ
-    int updateCounter = 0,
-  }) : _updateCounter = updateCounter;
+    this.activeTransfers = const [],
+  });
 
+  // ИСПРАВЛЕНО: Правильный copyWith с nullable
   LanLoaded copyWith({
     UserSettings? userSettings,
     bool? isShareMode,
     List<SharedFile>? sharedFiles,
     List<Device>? availableDevices,
-    Device? selectedDevice,
+    Device? selectedDevice, // НЕПРАВИЛЬНО - не сбросит в null
     List<SharedFile>? receivedFiles,
     List<TransferProgressModel>? activeTransfers,
-    bool forceUpdate = false,
+    bool clearSelectedDevice = false, // НОВОЕ: explicit flag
+    bool clearReceivedFiles = false, // НОВОЕ: explicit flag
   }) {
     return LanLoaded(
       userSettings: userSettings ?? this.userSettings,
       isShareMode: isShareMode ?? this.isShareMode,
       sharedFiles: sharedFiles ?? this.sharedFiles,
       availableDevices: availableDevices ?? this.availableDevices,
-      selectedDevice: selectedDevice ?? this.selectedDevice,
-      receivedFiles: receivedFiles ?? this.receivedFiles,
+      selectedDevice: clearSelectedDevice
+          ? null
+          : (selectedDevice ?? this.selectedDevice),
+      receivedFiles: clearReceivedFiles
+          ? null
+          : (receivedFiles ?? this.receivedFiles),
       activeTransfers: activeTransfers ?? this.activeTransfers,
-      updateCounter: forceUpdate ? _updateCounter + 1 : _updateCounter,
     );
   }
-
-  @override
-  List<Object?> get props => [
-    userSettings,
-    isShareMode,
-    sharedFiles,
-    availableDevices,
-    selectedDevice,
-    receivedFiles,
-    activeTransfers,
-  ];
 }
 
 class LanError extends LanState {

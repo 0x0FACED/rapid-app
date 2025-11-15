@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:injectable/injectable.dart';
+import 'package:rapid/core/services/chat_service.dart';
+import 'package:rapid/core/services/notification_service.dart';
+import 'package:rapid/features/lan/domain/entities/device.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mime/mime.dart';
 import '../../../../core/mdns/device_discovery.dart';
@@ -25,10 +28,13 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   final ReceiveFilesUseCase _receiveFilesUseCase; // НОВОЕ
   final HttpServerService _httpServer;
   final ApiClient _apiClient;
+  final NotificationService _notificationService;
+  final ChatService _chatService;
 
   StreamSubscription? _devicesSubscription;
   StreamSubscription? _transfersSubscription; // НОВОЕ
   StreamSubscription? _incomingTextsSubscription;
+  Timer? _fileRefreshTimer;
 
   LanBloc(
     this._settingsRepository,
@@ -38,6 +44,8 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     this._receiveFilesUseCase, // НОВОЕ
     this._httpServer,
     this._apiClient,
+    this._notificationService,
+    this._chatService,
   ) : super(LanInitial()) {
     on<LanInitialize>(_onInitialize);
     on<LanToggleMode>(_onToggleMode);
@@ -51,6 +59,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     on<LanTransfersUpdated>(_onTransfersUpdated); // НОВОЕ
     on<LanCancelTransfer>(_onCancelTransfer); // НОВОЕ
     on<LanRefreshSettings>(_onRefreshSettings);
+    on<LanRefreshDeviceFiles>(_onRefreshDeviceFiles);
   }
 
   Future<void> _onInitialize(
@@ -80,7 +89,20 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       ) {
         print(
           '[LanBloc] Received text from ${textMessage.fromDeviceName}: ${textMessage.text}',
-          // Добавить чет по типу уведомлений
+        );
+
+        _notificationService.addTextNotification(
+          deviceName: textMessage.fromDeviceName,
+          deviceId: textMessage.fromDevice,
+          text: textMessage.text,
+        );
+
+        _chatService.addMessage(
+          deviceId: textMessage.fromDevice,
+          text: textMessage.text,
+          fromDeviceId: textMessage.fromDevice,
+          fromDeviceName: textMessage.fromDeviceName,
+          isSentByMe: false,
         );
       });
 
@@ -192,12 +214,11 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       print('[LanBloc]   - ${device.name} (${device.id})');
     }
 
-    emit(
-      currentState.copyWith(
-        availableDevices: List.from(event.devices), // Новый список
-        forceUpdate: true, // НОВОЕ
-      ),
+    final newState = currentState.copyWith(
+      availableDevices: List.from(event.devices), // НОВЫЙ список
     );
+
+    emit(newState);
     print('[LanBloc] ✓ State emitted');
     print('[LanBloc] ========================================');
   }
@@ -211,28 +232,36 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     final currentState = state as LanLoaded;
 
     if (event.deviceId == null) {
-      // Deselect
-      emit(currentState.copyWith(selectedDevice: null, receivedFiles: null));
+      _stopFileRefresh();
+      // ИСПРАВЛЕНО: Используем explicit flag
+      print('[LanBloc] Deselecting device');
+      emit(
+        currentState.copyWith(
+          clearSelectedDevice: true,
+          clearReceivedFiles: true,
+        ),
+      );
+      print(
+        '[LanBloc] Device deselected, selectedDevice=${(state as LanLoaded).selectedDevice}',
+      );
       return;
     }
 
     try {
-      // Находим устройство по ID
       final device = currentState.availableDevices.firstWhere(
         (d) => d.id == event.deviceId,
       );
 
-      // НОВОЕ: Запрашиваем список файлов с устройства
+      print('[LanBloc] Selecting device: ${device.name}');
       print('[LanBloc] Requesting files from ${device.name}...');
 
       final filesData = await _apiClient.getAvailableFiles(device.baseUrl);
 
-      // Конвертируем в SharedFile
       final receivedFiles = filesData.map((fileData) {
         return SharedFile(
           id: fileData['id'] as String,
           name: fileData['fileName'] as String,
-          path: '', // Путь не нужен для удалённых файлов
+          path: '',
           size: fileData['size'] as int,
           mimeType: fileData['fileType'] as String,
           addedAt: DateTime.now(),
@@ -246,18 +275,77 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         ),
       );
 
+      _startFileRefresh(device.id);
+
       print(
-        '[LanBloc] Loaded ${receivedFiles.length} files from ${device.name}',
+        '[LanBloc] Device selected: ${device.name}, files: ${receivedFiles.length}',
       );
     } catch (e) {
       print('[LanBloc] Failed to load files: $e');
 
-      // Всё равно выбираем устройство, но без файлов
       final device = currentState.availableDevices.firstWhere(
         (d) => d.id == event.deviceId,
       );
 
       emit(currentState.copyWith(selectedDevice: device, receivedFiles: []));
+    }
+  }
+
+  void _startFileRefresh(String deviceId) {
+    _stopFileRefresh(); // Останавливаем предыдущий таймер
+
+    _fileRefreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      print('[LanBloc] Auto-refreshing files for device $deviceId');
+      add(LanRefreshDeviceFiles(deviceId));
+    });
+  }
+
+  // НОВОЕ: Остановка auto-refresh
+  void _stopFileRefresh() {
+    _fileRefreshTimer?.cancel();
+    _fileRefreshTimer = null;
+  }
+
+  // НОВОЕ: Обработка refresh файлов
+  Future<void> _onRefreshDeviceFiles(
+    LanRefreshDeviceFiles event,
+    Emitter<LanState> emit,
+  ) async {
+    if (state is! LanLoaded) return;
+
+    final currentState = state as LanLoaded;
+
+    // Проверяем что устройство всё ещё выбрано
+    if (currentState.selectedDevice?.id != event.deviceId) {
+      return;
+    }
+
+    final device = currentState.selectedDevice!;
+
+    try {
+      final filesData = await _apiClient.getAvailableFiles(device.baseUrl);
+
+      final receivedFiles = filesData.map((fileData) {
+        return SharedFile(
+          id: fileData['id'] as String,
+          name: fileData['fileName'] as String,
+          path: '',
+          size: fileData['size'] as int,
+          mimeType: fileData['fileType'] as String,
+          addedAt: DateTime.now(),
+        );
+      }).toList();
+
+      // Обновляем только если список изменился
+      final oldCount = currentState.receivedFiles?.length ?? 0;
+      if (receivedFiles.length != oldCount) {
+        print('[LanBloc] Files updated: $oldCount -> ${receivedFiles.length}');
+
+        emit(currentState.copyWith(receivedFiles: receivedFiles));
+      }
+    } catch (e) {
+      print('[LanBloc] Failed to refresh files: $e');
+      // Не показываем ошибку пользователю при auto-refresh
     }
   }
 
@@ -267,10 +355,17 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     final currentState = state as LanLoaded;
 
     try {
-      // Находим устройство
-      final device = currentState.availableDevices.firstWhere(
-        (d) => d.id == event.targetDeviceId,
+      // ИСПРАВЛЕНО: Используем firstWhereOrNull вместо firstWhere
+      final device = currentState.availableDevices.cast<Device?>().firstWhere(
+        (d) => d?.id == event.targetDeviceId,
+        orElse: () => null,
       );
+
+      if (device == null) {
+        print('[LanBloc] ⚠️ Device not found: ${event.targetDeviceId}');
+        // Устройство недоступно - не выполняем отправку
+        return;
+      }
 
       // Получаем наши данные
       final ourDeviceName = currentState.userSettings.deviceName;
@@ -284,9 +379,10 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         fromDeviceName: ourDeviceName,
       );
 
-      print('[LanBloc] Text sent to ${device.name}: ${event.text}');
+      print('[LanBloc] ✓ Text sent to ${device.name}: ${event.text}');
     } catch (e) {
       print('[LanBloc] Failed to send text: $e');
+      // Не пробрасываем исключение дальше
     }
   }
 
@@ -334,32 +430,91 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
     final currentState = state as LanLoaded;
 
-    // Находим устройство
     final device = currentState.availableDevices.firstWhere(
       (d) => d.id == event.sourceDeviceId,
     );
 
-    // Находим файлы (TODO: получить реальный список с устройства)
-    final filesToReceive = currentState.receivedFiles ?? [];
-
-    if (filesToReceive.isEmpty) {
-      print('[LanBloc] No files to receive');
-      return;
-    }
-
     try {
-      // Запускаем получение асинхронно
+      // НОВОЕ: Сначала обновляем список файлов
+      print('[LanBloc] Checking if files still available...');
+      final filesData = await _apiClient.getAvailableFiles(device.baseUrl);
+
+      final availableFileIds = filesData.map((f) => f['id'] as String).toSet();
+
+      // Проверяем что все запрошенные файлы ещё доступны
+      final unavailableFiles = event.fileIds
+          .where((id) => !availableFileIds.contains(id))
+          .toList();
+
+      if (unavailableFiles.isNotEmpty) {
+        print(
+          '[LanBloc] ⚠️ Some files are no longer available: $unavailableFiles',
+        );
+
+        // Уведомляем пользователя
+        _notificationService.addFileDownloadFailedNotification(
+          deviceName: device.name,
+          fileName: '${unavailableFiles.length} file(s)',
+          error: 'File(s) no longer shared',
+        );
+
+        // Обновляем список файлов
+        final receivedFiles = filesData.map((fileData) {
+          return SharedFile(
+            id: fileData['id'] as String,
+            name: fileData['fileName'] as String,
+            path: '',
+            size: fileData['size'] as int,
+            mimeType: fileData['fileType'] as String,
+            addedAt: DateTime.now(),
+          );
+        }).toList();
+
+        emit(currentState.copyWith(receivedFiles: receivedFiles));
+        return;
+      }
+
+      // Все файлы доступны - скачиваем
+      final filesToReceive =
+          currentState.receivedFiles
+              ?.where((f) => event.fileIds.contains(f.id))
+              .toList() ??
+          [];
+
+      if (filesToReceive.isEmpty) {
+        print('[LanBloc] No files to receive');
+        return;
+      }
+
       _receiveFilesUseCase
           .execute(sourceDevice: device, files: filesToReceive)
+          .then((_) {
+            // Успешно скачано
+            _notificationService.addFileDownloadedNotification(
+              deviceName: device.name,
+              fileName: filesToReceive.first.name,
+              filePath: '/path/to/file', // TODO: реальный путь
+            );
+          })
           .catchError((e) {
             print('[LanBloc] Receive files error: $e');
+
+            _notificationService.addFileDownloadFailedNotification(
+              deviceName: device.name,
+              fileName: filesToReceive.first.name,
+              error: e.toString(),
+            );
           });
 
-      print(
-        '[LanBloc] Started receiving ${filesToReceive.length} files from ${device.name}',
-      );
+      print('[LanBloc] Started receiving ${filesToReceive.length} files');
     } catch (e) {
-      print('[LanBloc] Error starting file receive: $e');
+      print('[LanBloc] Error checking files: $e');
+
+      _notificationService.addFileDownloadFailedNotification(
+        deviceName: device.name,
+        fileName: 'files',
+        error: 'Cannot connect to device',
+      );
     }
   }
 
@@ -399,6 +554,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     _devicesSubscription?.cancel();
     _transfersSubscription?.cancel(); // НОВОЕ
     _incomingTextsSubscription?.cancel();
+    _stopFileRefresh();
     return super.close();
   }
 }

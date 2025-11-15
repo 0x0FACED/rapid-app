@@ -109,3 +109,13 @@ class LanCancelTransfer extends LanEvent {
 }
 
 class LanRefreshSettings extends LanEvent {}
+
+/// Обновить список файлов выбранного устройства
+class LanRefreshDeviceFiles extends LanEvent {
+  final String deviceId;
+
+  const LanRefreshDeviceFiles(this.deviceId);
+
+  @override
+  List<Object?> get props => [deviceId];
+}

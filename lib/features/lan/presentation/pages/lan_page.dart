@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rapid/features/lan/domain/entities/device.dart';
 import 'package:rapid/features/lan/domain/entities/shared_file.dart';
+import 'package:rapid/features/lan/presentation/pages/chat_page.dart';
 import 'package:rapid/features/settings/presentation/bloc/settings_bloc.dart';
 import 'package:rapid/features/settings/presentation/bloc/settings_state.dart';
 import '../../../../core/di/injection.dart';
@@ -39,13 +40,6 @@ class _LANPageContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<LanBloc, LanState>(
-      // ВАЖНО: buildWhen для контроля rebuild
-      buildWhen: (previous, current) {
-        print(
-          '[LANPage] buildWhen: ${previous.runtimeType} -> ${current.runtimeType}',
-        );
-        return true; // Rebuild при любом изменении
-      },
       builder: (context, state) {
         print('[LANPage] Building with state: ${state.runtimeType}');
 
@@ -79,39 +73,39 @@ class _LANPageContent extends StatelessWidget {
         if (state is LanLoaded) {
           final selectedDevice = state.selectedDevice;
 
-          // НОВОЕ: WillPopScope для обработки системной кнопки назад
-          return WillPopScope(
-            onWillPop: () async {
-              if (selectedDevice != null) {
+          // ИСПРАВЛЕНО: WillPopScope с правильной логикой
+          return PopScope(
+            canPop:
+                selectedDevice ==
+                null, // Можем выйти только если устройство не выбрано
+            onPopInvoked: (didPop) {
+              if (!didPop && selectedDevice != null) {
+                // Если пытаемся выйти, но устройство выбрано - deselect
                 context.read<LanBloc>().add(const LanSelectDevice(null));
-                return false;
               }
-              return true;
             },
             child: Scaffold(
               appBar: AppBar(
-                title: Text(
-                  selectedDevice != null
-                      ? selectedDevice
-                            .name // Имя выбранного устройства
-                      : 'Rapid LAN',
-                ),
-                centerTitle: true,
-                // НОВОЕ: Кнопка назад при выборе устройства
+                // ИСПРАВЛЕНО: leading только если устройство выбрано
                 leading: selectedDevice != null
                     ? IconButton(
                         icon: const Icon(Icons.arrow_back),
                         onPressed: () {
+                          print('[LANPage] Back button pressed');
                           context.read<LanBloc>().add(
                             const LanSelectDevice(null),
                           );
                         },
                       )
                     : null,
+                title: Text(
+                  selectedDevice != null ? selectedDevice.name : 'Rapid LAN',
+                ),
+                centerTitle: true,
               ),
               body: Column(
                 children: [
-                  // Профиль пользователя (только когда не выбрано устройство)
+                  // Профиль и toggle только когда устройство НЕ выбрано
                   if (selectedDevice == null) ...[
                     UserProfileCard(settings: state.userSettings),
                     const SizedBox(height: 16),
@@ -122,14 +116,14 @@ class _LANPageContent extends StatelessWidget {
                   // Активные передачи
                   if (state.activeTransfers.isNotEmpty)
                     SizedBox(
-                      height: 120,
+                      height: 100,
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         itemCount: state.activeTransfers.length,
                         itemBuilder: (context, index) {
                           return SizedBox(
-                            width: 300,
+                            width: 280,
                             child: TransferProgressCard(
                               transfer: state.activeTransfers[index],
                             ),
@@ -139,7 +133,7 @@ class _LANPageContent extends StatelessWidget {
                     ),
 
                   if (state.activeTransfers.isNotEmpty)
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
 
                   // Основной контент
                   Expanded(
@@ -157,7 +151,7 @@ class _LANPageContent extends StatelessWidget {
                                 )),
                   ),
 
-                  // Поле для отправки текста (только если не выбрано устройство)
+                  // Поле для текста только когда устройство НЕ выбрано
                   if (selectedDevice == null) const TextShareInput(),
                 ],
               ),
@@ -270,13 +264,11 @@ class _ReceiveModeContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    print('[ReceiveModeContent] Showing ${devices.length} devices');
-
     return DeviceList(devices: devices);
   }
 }
 
-/// НОВОЕ: Просмотр файлов выбранного устройства
+/// ИСПРАВЛЕНО: Улучшенный экран файлов устройства
 class _DeviceFilesView extends StatelessWidget {
   final Device device;
   final List<SharedFile> files;
@@ -285,70 +277,486 @@ class _DeviceFilesView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (files.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.folder_open, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text('No files available'),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: files.length,
-      itemBuilder: (context, index) {
-        final file = files[index];
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: Icon(
-              _getFileIcon(file.mimeType),
-              color: Theme.of(context).colorScheme.primary,
+    return Column(
+      children: [
+        // ИСПРАВЛЕНО: Плашка с padding и закруглениями
+        Padding(
+          padding: const EdgeInsets.all(16), // Padding как на основной странице
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Theme.of(context).colorScheme.tertiary,
+                  Theme.of(context).colorScheme.tertiary.withOpacity(0.7),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20), // Закругленные края
+              boxShadow: [
+                BoxShadow(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.tertiary.withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            title: Text(file.name),
-            subtitle: Text(_formatFileSize(file.size)),
-            trailing: IconButton(
-              icon: const Icon(Icons.download),
-              onPressed: () {
-                context.read<LanBloc>().add(
-                  LanReceiveFiles(device.id, [file.id]),
-                );
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Downloading ${file.name}...'),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Верхняя часть: иконка + название + кнопка refresh
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.devices,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            device.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black26,
+                                  offset: Offset(0, 2),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${device.host}:${device.port}',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.refresh_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                        onPressed: () {
+                          context.read<LanBloc>().add(
+                            LanRefreshDeviceFiles(device.id),
+                          );
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Refreshing files...'),
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // Info chips
+                Row(
+                  children: [
+                    _buildInfoChip(
+                      context,
+                      icon: Icons.folder_rounded,
+                      label: '${files.length} files',
+                    ),
+                    const SizedBox(width: 8),
+                    _buildInfoChip(
+                      context,
+                      icon: device.protocol == 'https'
+                          ? Icons.lock_rounded
+                          : Icons.lock_open_rounded,
+                      label: device.protocol.toUpperCase(),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildInfoChip(
+                      context,
+                      icon: Icons.check_circle_rounded,
+                      label: 'Online',
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // НОВОЕ: Кнопки действий
+                Row(
+                  children: [
+                    // Кнопка "Добавить в избранное"
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          _addToFavorites(context, device);
+                        },
+                        icon: const Icon(Icons.star_rounded, size: 18),
+                        label: const Text('Favorite'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white.withOpacity(0.2),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                              color: Colors.white.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Кнопка "Открыть чат"
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          _openChat(context, device);
+                        },
+                        icon: const Icon(Icons.chat_rounded, size: 18),
+                        label: const Text('Chat'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.tertiary,
+                          elevation: 2,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-        );
-      },
+        ),
+
+        // Список файлов
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              context.read<LanBloc>().add(LanRefreshDeviceFiles(device.id));
+              await Future.delayed(const Duration(milliseconds: 500));
+            },
+            child: files.isEmpty
+                ? _buildEmptyState(context)
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: files.length,
+                    itemBuilder: (context, index) {
+                      final file = files[index];
+                      return _FileCard(file: file, device: device);
+                    },
+                  ),
+          ),
+        ),
+      ],
     );
   }
 
-  IconData _getFileIcon(String mimeType) {
-    if (mimeType.startsWith('image/')) return Icons.image;
-    if (mimeType.startsWith('video/')) return Icons.video_file;
-    if (mimeType.startsWith('audio/')) return Icons.audio_file;
-    if (mimeType.contains('pdf')) return Icons.picture_as_pdf;
-    if (mimeType.contains('zip') || mimeType.contains('rar')) {
-      return Icons.folder_zip;
+  void _addToFavorites(BuildContext context, Device device) {
+    // TODO: Реализовать логику добавления в избранное
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.star_rounded, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text('${device.name} added to favorites')),
+          ],
+        ),
+        backgroundColor: Theme.of(context).colorScheme.tertiary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _openChat(BuildContext context, Device device) {
+    // ИСПРАВЛЕНО: Передаём существующий LanBloc
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BlocProvider.value(
+          value: context.read<LanBloc>(), // Используем существующий BLoC
+          child: ChatPage(device: device),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoChip(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.white),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(BuildContext context) {
+    return ListView(
+      children: [
+        SizedBox(
+          height: MediaQuery.of(context).size.height * 0.5,
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.folder_open_rounded,
+                  size: 80,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No files shared',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Pull down to refresh',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Карточка файла с улучшенным дизайном
+class _FileCard extends StatelessWidget {
+  final SharedFile file;
+  final Device device;
+
+  const _FileCard({required this.file, required this.device});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          _showFileOptions(context);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              // Иконка файла
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: _getFileColor().withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(_getFileIcon(), color: _getFileColor(), size: 28),
+              ),
+
+              const SizedBox(width: 16),
+
+              // Информация о файле
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      file.name,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatFileSize(file.size),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Кнопка скачивания
+              IconButton(
+                icon: Icon(
+                  Icons.download_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                onPressed: () {
+                  _downloadFile(context);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _downloadFile(BuildContext context) {
+    context.read<LanBloc>().add(LanReceiveFiles(device.id, [file.id]));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Downloading ${file.name}...'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showFileOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: const Text('Download'),
+              onTap: () {
+                Navigator.pop(context);
+                _downloadFile(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('File info'),
+              onTap: () {
+                Navigator.pop(context);
+                _showFileInfo(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFileInfo(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('File Information'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Name: ${file.name}'),
+            const SizedBox(height: 8),
+            Text('Size: ${_formatFileSize(file.size)}'),
+            const SizedBox(height: 8),
+            Text('Type: ${file.mimeType}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getFileIcon() {
+    if (file.mimeType.startsWith('image/')) return Icons.image_rounded;
+    if (file.mimeType.startsWith('video/')) return Icons.video_file_rounded;
+    if (file.mimeType.startsWith('audio/')) return Icons.audio_file_rounded;
+    if (file.mimeType.contains('pdf')) return Icons.picture_as_pdf_rounded;
+    if (file.mimeType.contains('zip') || file.mimeType.contains('rar')) {
+      return Icons.folder_zip_rounded;
     }
-    return Icons.insert_drive_file;
+    return Icons.insert_drive_file_rounded;
+  }
+
+  Color _getFileColor() {
+    if (file.mimeType.startsWith('image/')) return Colors.blue;
+    if (file.mimeType.startsWith('video/')) return Colors.purple;
+    if (file.mimeType.startsWith('audio/')) return Colors.orange;
+    if (file.mimeType.contains('pdf')) return Colors.red;
+    if (file.mimeType.contains('zip') || file.mimeType.contains('rar')) {
+      return Colors.amber;
+    }
+    return Colors.grey;
   }
 
   String _formatFileSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) {
-      return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    }
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
     if (bytes < 1024 * 1024 * 1024) {
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     }

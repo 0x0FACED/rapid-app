@@ -47,13 +47,29 @@ class BroadcastAnnouncer {
       _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       _socket!.broadcastEnabled = true;
 
-      // Отправляем announce каждую секунду
-      _announceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        _sendAnnouncement();
-      });
+      // ИСПРАВЛЕНО: Агрессивные announces первые 5 секунд
+      int burstCount = 0;
+      Timer? burstTimer;
 
-      // Первый announce сразу
+      // Первый announce СРАЗУ
       _sendAnnouncement();
+
+      // Burst режим: каждые 200ms первые 5 секунд (25 пакетов)
+      burstTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+        _sendAnnouncement();
+        burstCount++;
+
+        if (burstCount >= 25) {
+          // 25 * 200ms = 5 секунд
+          burstTimer?.cancel();
+          print('[Broadcast] Switching to normal mode (every 1 sec)');
+
+          // Нормальный режим: каждую секунду
+          _announceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+            _sendAnnouncement();
+          });
+        }
+      });
 
       _isRunning = true;
       print('[Broadcast] ✓ Announcer started');

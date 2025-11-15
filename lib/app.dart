@@ -55,7 +55,7 @@ class _RapidAppContentState extends State<_RapidAppContent> {
           key: _appKey, // Глобальный ключ
           title: 'Rapid',
           theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
+          darkTheme: AppTheme.darkTheme(),
           themeMode: themeMode,
 
           locale: locale,
