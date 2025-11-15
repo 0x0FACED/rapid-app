@@ -32,7 +32,6 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   final ChatService _chatService;
 
   StreamSubscription? _devicesSubscription;
-  StreamSubscription? _transfersSubscription; // НОВОЕ
   StreamSubscription? _incomingTextsSubscription;
   Timer? _fileRefreshTimer;
 
@@ -56,7 +55,6 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     on<LanSendText>(_onSendText);
     on<LanSendFiles>(_onSendFiles); // НОВОЕ
     on<LanReceiveFiles>(_onReceiveFiles); // НОВОЕ
-    on<LanTransfersUpdated>(_onTransfersUpdated); // НОВОЕ
     on<LanCancelTransfer>(_onCancelTransfer); // НОВОЕ
     on<LanRefreshSettings>(_onRefreshSettings);
     on<LanRefreshDeviceFiles>(_onRefreshDeviceFiles);
@@ -75,13 +73,6 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       // Подписываемся на обновления устройств
       _devicesSubscription = _deviceDiscovery.devicesStream.listen((devices) {
         add(LanDevicesUpdated(devices));
-      });
-
-      // Подписываемся на обновления передач (НОВОЕ)
-      _transfersSubscription = _transferManager.transfersStream.listen((
-        transfers,
-      ) {
-        add(LanTransfersUpdated(transfers));
       });
 
       _incomingTextsSubscription = _httpServer.incomingTexts.listen((
@@ -249,7 +240,6 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
     if (event.deviceId == null) {
       _stopFileRefresh();
-      // ИСПРАВЛЕНО: Используем explicit flag
       print('[LanBloc] Deselecting device');
       emit(
         currentState.copyWith(
@@ -263,11 +253,20 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       return;
     }
 
-    try {
-      final device = currentState.availableDevices.firstWhere(
-        (d) => d.id == event.deviceId,
-      );
+    // 1) СНАЧАЛА выбираем устройство, чтобы UI сразу переключился с анимацией
+    final device = currentState.availableDevices.firstWhere(
+      (d) => d.id == event.deviceId,
+    );
 
+    emit(
+      currentState.copyWith(
+        selectedDevice: device,
+        receivedFiles: [], // пока файлов нет, просто пустой список
+      ),
+    );
+
+    // 2) Потом уже асинхронно грузим файлы
+    try {
       print('[LanBloc] Selecting device: ${device.name}');
       print('[LanBloc] Requesting files from ${device.name}...');
 
@@ -284,12 +283,17 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         );
       }).toList();
 
-      emit(
-        currentState.copyWith(
-          selectedDevice: device,
-          receivedFiles: receivedFiles,
-        ),
-      );
+      // Важно: берём актуальное состояние, чтобы не перезатереть изменения
+      final latestState = state;
+      if (latestState is! LanLoaded) return;
+
+      // Убедимся, что всё ещё выбрано именно это устройство
+      if (latestState.selectedDevice?.id != device.id) {
+        print('[LanBloc] Device changed while loading, skipping files update');
+        return;
+      }
+
+      emit(latestState.copyWith(receivedFiles: receivedFiles));
 
       _startFileRefresh(device.id);
 
@@ -299,11 +303,13 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     } catch (e) {
       print('[LanBloc] Failed to load files: $e');
 
-      final device = currentState.availableDevices.firstWhere(
-        (d) => d.id == event.deviceId,
-      );
+      final latestState = state;
+      if (latestState is! LanLoaded) return;
 
-      emit(currentState.copyWith(selectedDevice: device, receivedFiles: []));
+      // Если устройство всё ещё выбрано — оставим его, но с пустым списком файлов
+      if (latestState.selectedDevice?.id == device.id) {
+        emit(latestState.copyWith(receivedFiles: []));
+      }
     }
   }
 
@@ -632,13 +638,6 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     }
   }
 
-  void _onTransfersUpdated(LanTransfersUpdated event, Emitter<LanState> emit) {
-    if (state is! LanLoaded) return;
-
-    final currentState = state as LanLoaded;
-    emit(currentState.copyWith(activeTransfers: event.transfers));
-  }
-
   void _onCancelTransfer(LanCancelTransfer event, Emitter<LanState> emit) {
     _transferManager.cancelTransfer(event.transferId);
   }
@@ -646,7 +645,6 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   @override
   Future<void> close() {
     _devicesSubscription?.cancel();
-    _transfersSubscription?.cancel(); // НОВОЕ
     _incomingTextsSubscription?.cancel();
     _stopFileRefresh();
     return super.close();
