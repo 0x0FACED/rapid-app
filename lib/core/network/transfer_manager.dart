@@ -123,7 +123,9 @@ class TransferManager {
 
   void dispose() {
     _transfersController.close();
-    _cancelTokens.values.forEach((token) => token.cancel());
+    for (var token in _cancelTokens.values) {
+      token.cancel();
+    }
     _cancelTokens.clear();
   }
 }

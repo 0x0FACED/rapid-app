@@ -49,8 +49,7 @@ dependencies:
   shelf_router: ^1.1.4
 
   # mDNS Service Discovery
-  multicast_dns: ^0.3.2+6
-  flutter_nsd: ^1.6.0
+  multicast_dns: ^0.3.3
 
   # Local Storage
   shared_preferences: ^2.2.3

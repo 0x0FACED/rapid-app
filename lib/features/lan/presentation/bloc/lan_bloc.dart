@@ -9,7 +9,6 @@ import '../../../../core/mdns/device_discovery.dart';
 import '../../../settings/domain/repositories/settings_repository.dart';
 import '../../domain/entities/shared_file.dart';
 import '../../../../core/network/transfer_manager.dart';
-import '../../data/models/transfer_progress_model.dart';
 import '../../../../core/network/http_server.dart';
 import '../../../../core/network/api_client.dart';
 import '../../domain/usecases/send_files.dart';

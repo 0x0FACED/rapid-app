@@ -10,7 +10,6 @@ import '../../data/models/transfer_progress_model.dart';
 import '../entities/device.dart';
 import '../entities/shared_file.dart';
 
-import '../../../../core/network/transfer_manager.dart' show RapidCancelToken;
 
 @injectable
 class SendFilesUseCase {

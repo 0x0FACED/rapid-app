@@ -202,7 +202,7 @@ class _TextShareInputState extends State<TextShareInput> {
                     );
                   },
                 );
-              }).toList(),
+              }),
             ],
           ),
         );

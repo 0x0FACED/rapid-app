@@ -1,140 +1,311 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:multicast_dns/multicast_dns.dart';
+import 'dart:typed_data';
 import 'package:injectable/injectable.dart';
 import 'package:network_info_plus/network_info_plus.dart';
-import '../constants/app_constants.dart';
 
 @lazySingleton
 class ServiceAnnouncer {
-  MDnsClient? _responder;
+  RawDatagramSocket? _socket;
   bool _isAnnouncing = false;
+  Timer? _announceTimer;
 
   String? _deviceId;
   String? _deviceName;
   int? _serverPort;
+  String? _protocol;
+  InternetAddress? _localAddress;
+
+  static const String _mDnsAddress = '224.0.0.251';
+  static const int _mDnsPort = 5353;
 
   bool get isAnnouncing => _isAnnouncing;
 
-  /// Начать анонсирование нашего сервиса
   Future<void> start({
     required String deviceId,
     required String deviceName,
     required int serverPort,
     String? avatar,
+    String protocol = 'https',
   }) async {
     if (_isAnnouncing) return;
 
     _deviceId = deviceId;
     _deviceName = deviceName;
     _serverPort = serverPort;
+    _protocol = protocol;
 
     try {
-      _responder = MDnsClient();
-      await _responder!.start();
+      print('[Announcer] ========================================');
+      print('[Announcer] Starting for: $deviceName ($deviceId)');
 
-      // Получаем локальный IP адрес
-      final ipAddress = await _getLocalIpAddress();
+      final ipAddress = await _getWifiIpAddress();
       if (ipAddress == null) {
-        throw Exception('Cannot determine local IP address');
+        throw Exception('Cannot get WiFi IP');
       }
 
-      // Создаем полное доменное имя для нашего сервиса
-      final serviceName = '$deviceId.${AppConstants.serviceName}.local';
+      _localAddress = InternetAddress(ipAddress);
+      print('[Announcer] WiFi IP: $ipAddress');
 
-      // Регистрируем сервис - отвечаем на запросы
-      _startResponding(
-        serviceName: serviceName,
-        ipAddress: ipAddress,
-        port: serverPort,
-        deviceName: deviceName,
-        deviceId: deviceId,
-        avatar: avatar,
+      _socket = await RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        _mDnsPort,
+        reuseAddress: true,
       );
+
+      print('[Announcer] Bound to port ${_socket!.port}');
+
+      _socket!.broadcastEnabled = true;
+      _socket!.multicastHops = 255;
+
+      final wifiInterface = await _getWifiInterface();
+      if (wifiInterface == null) {
+        throw Exception('WiFi interface not found');
+      }
+
+      _socket!.joinMulticast(InternetAddress(_mDnsAddress), wifiInterface);
+      print('[Announcer] ✓ Joined multicast on ${wifiInterface.name}');
+
+      // Агрессивные announcements первые 10 секунд
+      int count = 0;
+      Timer? initialTimer;
+
+      initialTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        _sendAnnouncement();
+        count++;
+
+        if (count >= 20) {
+          initialTimer?.cancel();
+          print('[Announcer] Switching to normal mode (every 2 sec)');
+
+          _announceTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+            _sendAnnouncement();
+          });
+        }
+      });
 
       _isAnnouncing = true;
-      print(
-        '[Announcer] Service registered: $serviceName on $ipAddress:$serverPort',
-      );
-    } catch (e) {
-      print('[Announcer] Failed to start: $e');
-      rethrow;
+      print('[Announcer] ✓ Started successfully');
+      print('[Announcer] ========================================');
+    } catch (e, stackTrace) {
+      print('[Announcer] ✗✗✗ FAILED ✗✗✗');
+      print('[Announcer] Error: $e');
+      print(stackTrace);
     }
   }
 
-  /// Остановить анонсирование
-  Future<void> stop() async {
-    if (!_isAnnouncing) return;
+  void _sendAnnouncement() {
+    if (_socket == null || _localAddress == null) return;
 
-    _responder?.stop();
-    _isAnnouncing = false;
-    _responder = null;
+    try {
+      final packet = _buildMdnsResponsePacket();
+      final destination = InternetAddress(_mDnsAddress);
 
-    print('[Announcer] Service unregistered');
+      final sent = _socket!.send(packet, destination, _mDnsPort);
+
+      if (sent > 0) {
+        print('[Announcer] → Sent $sent bytes');
+      } else {
+        print('[Announcer] ✗ Send failed');
+      }
+    } catch (e) {
+      print('[Announcer] ✗ Error: $e');
+    }
   }
 
-  /// Отвечаем на mDNS запросы
-  void _startResponding({
-    required String serviceName,
-    required String ipAddress,
-    required int port,
-    required String deviceName,
-    required String deviceId,
-    String? avatar,
-  }) {
-    // multicast_dns не поддерживает полноценную регистрацию сервиса
-    // Нужно вручную отвечать на запросы
-    // Это упрощенная реализация - для production лучше использовать flutter_nsd
+  Uint8List _buildMdnsResponsePacket() {
+    final serviceName = '$_deviceName._rapid._tcp.local';
+    final hostName = '$_deviceId.local';
 
-    Timer.periodic(const Duration(seconds: 1), (timer) async {
-      if (!_isAnnouncing) {
-        timer.cancel();
-        return;
-      }
+    final serviceNameParts = _encodeDnsName(serviceName);
+    final serviceTypeParts = _encodeDnsName('_rapid._tcp.local');
+    final hostNameParts = _encodeDnsName(hostName);
 
-      // Периодически отправляем unsolicited multicast responses
-      // Это позволит другим устройствам обнаружить нас
-      try {
-        // В реальности здесь нужна более сложная логика
-        // Для упрощения можно использовать пакет flutter_nsd вместо multicast_dns
-        print('[Announcer] Still announcing $serviceName');
-      } catch (e) {
-        print('[Announcer] Error during announcement: $e');
-      }
-    });
+    final txtData = 'id=$_deviceId\nname=$_deviceName\nprotocol=$_protocol';
+    final txtBytes = _encodeTxtRecord(txtData);
+
+    int size = 12;
+    size += serviceTypeParts.length + 10 + serviceNameParts.length;
+    size += serviceNameParts.length + 10 + 6 + hostNameParts.length;
+    size += hostNameParts.length + 10 + 4;
+    size += serviceNameParts.length + 10 + txtBytes.length;
+
+    final buffer = ByteData(size);
+    int offset = 0;
+
+    buffer.setUint16(offset, 0);
+    offset += 2;
+    buffer.setUint16(offset, 0x8400);
+    offset += 2;
+    buffer.setUint16(offset, 0);
+    offset += 2;
+    buffer.setUint16(offset, 4);
+    offset += 2;
+    buffer.setUint16(offset, 0);
+    offset += 2;
+    buffer.setUint16(offset, 0);
+    offset += 2;
+
+    offset = _writeBytes(buffer, offset, serviceTypeParts);
+    buffer.setUint16(offset, 12);
+    offset += 2;
+    buffer.setUint16(offset, 0x8001);
+    offset += 2;
+    buffer.setUint32(offset, 120);
+    offset += 4;
+    buffer.setUint16(offset, serviceNameParts.length);
+    offset += 2;
+    offset = _writeBytes(buffer, offset, serviceNameParts);
+
+    offset = _writeBytes(buffer, offset, serviceNameParts);
+    buffer.setUint16(offset, 33);
+    offset += 2;
+    buffer.setUint16(offset, 0x8001);
+    offset += 2;
+    buffer.setUint32(offset, 120);
+    offset += 4;
+    buffer.setUint16(offset, 6 + hostNameParts.length);
+    offset += 2;
+    buffer.setUint16(offset, 0);
+    offset += 2;
+    buffer.setUint16(offset, 0);
+    offset += 2;
+    buffer.setUint16(offset, _serverPort!);
+    offset += 2;
+    offset = _writeBytes(buffer, offset, hostNameParts);
+
+    offset = _writeBytes(buffer, offset, hostNameParts);
+    buffer.setUint16(offset, 1);
+    offset += 2;
+    buffer.setUint16(offset, 0x8001);
+    offset += 2;
+    buffer.setUint32(offset, 120);
+    offset += 4;
+    buffer.setUint16(offset, 4);
+    offset += 2;
+    final ipParts = _localAddress!.address.split('.');
+    for (final part in ipParts) {
+      buffer.setUint8(offset, int.parse(part));
+      offset++;
+    }
+
+    offset = _writeBytes(buffer, offset, serviceNameParts);
+    buffer.setUint16(offset, 16);
+    offset += 2;
+    buffer.setUint16(offset, 0x8001);
+    offset += 2;
+    buffer.setUint32(offset, 120);
+    offset += 4;
+    buffer.setUint16(offset, txtBytes.length);
+    offset += 2;
+    offset = _writeBytes(buffer, offset, txtBytes);
+
+    return buffer.buffer.asUint8List();
   }
 
-  /// Получить локальный IP адрес устройства
-  Future<String?> _getLocalIpAddress() async {
+  Uint8List _encodeDnsName(String name) {
+    final parts = name.split('.');
+    final List<int> result = [];
+
+    for (final part in parts) {
+      if (part.isEmpty) continue;
+      final bytes = part.codeUnits;
+      result.add(bytes.length);
+      result.addAll(bytes);
+    }
+
+    result.add(0);
+    return Uint8List.fromList(result);
+  }
+
+  Uint8List _encodeTxtRecord(String text) {
+    final lines = text.split('\n');
+    final List<int> result = [];
+
+    for (final line in lines) {
+      if (line.isEmpty) continue;
+      final bytes = line.codeUnits;
+      result.add(bytes.length);
+      result.addAll(bytes);
+    }
+
+    return Uint8List.fromList(result);
+  }
+
+  int _writeBytes(ByteData buffer, int offset, Uint8List bytes) {
+    for (int i = 0; i < bytes.length; i++) {
+      buffer.setUint8(offset + i, bytes[i]);
+    }
+    return offset + bytes.length;
+  }
+
+  Future<String?> _getWifiIpAddress() async {
     try {
       final info = NetworkInfo();
+      final wifiIP = await info.getWifiIP();
 
-      // Пробуем получить WiFi IP
-      String? ip = await info.getWifiIP();
+      if (wifiIP != null && wifiIP.isNotEmpty && !wifiIP.contains('::')) {
+        return wifiIP;
+      }
 
-      // Если не получилось через WiFi, пробуем через network interfaces
-      if (ip == null || ip.isEmpty) {
-        final interfaces = await NetworkInterface.list(
-          type: InternetAddressType.IPv4,
-          includeLinkLocal: false,
-        );
+      final wifiInterface = await _getWifiInterface();
+      if (wifiInterface != null && wifiInterface.addresses.isNotEmpty) {
+        return wifiInterface.addresses.first.address;
+      }
 
-        for (final interface in interfaces) {
-          for (final addr in interface.addresses) {
-            // Берем первый не-loopback адрес
-            if (!addr.isLoopback) {
-              ip = addr.address;
-              break;
-            }
+      return null;
+    } catch (e) {
+      print('[Announcer] Failed to get WiFi IP: $e');
+      return null;
+    }
+  }
+
+  Future<NetworkInterface?> _getWifiInterface() async {
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+
+      for (final interface in interfaces) {
+        final name = interface.name.toLowerCase();
+
+        if (name.startsWith('wlan') ||
+            name.startsWith('wlp') ||
+            name.startsWith('en0') ||
+            name.startsWith('ap')) {
+          if (interface.addresses.isEmpty) continue;
+
+          final addr = interface.addresses.first;
+
+          if (addr.address.startsWith('192.168.') ||
+              addr.address.startsWith('10.') ||
+              addr.address.startsWith('172.')) {
+            return interface;
           }
-          if (ip != null) break;
         }
       }
 
-      return ip;
-    } catch (e) {
-      print('[Announcer] Failed to get local IP: $e');
       return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> stop() async {
+    if (!_isAnnouncing) return;
+
+    try {
+      _announceTimer?.cancel();
+      _socket?.close();
+
+      _isAnnouncing = false;
+      _socket = null;
+      _announceTimer = null;
+
+      print('[Announcer] Stopped');
+    } catch (e) {
+      print('[Announcer] Stop error: $e');
     }
   }
 

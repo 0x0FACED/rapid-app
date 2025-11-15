@@ -2,200 +2,209 @@ import 'dart:async';
 import 'dart:io';
 import 'package:multicast_dns/multicast_dns.dart';
 import 'package:injectable/injectable.dart';
-import '../constants/app_constants.dart';
+import '../storage/shared_prefs_service.dart';
+import '../platform/multicast_lock.dart';
 
 @lazySingleton
 class MDnsService {
   MDnsClient? _client;
   bool _isRunning = false;
+  Timer? _queryTimer;
 
-  // Контроллер для стрима обнаруженных устройств
   final _discoveredDevicesController =
       StreamController<DiscoveredDevice>.broadcast();
   Stream<DiscoveredDevice> get discoveredDevices =>
       _discoveredDevicesController.stream;
 
+  final SharedPrefsService _prefs;
+  final Map<String, DiscoveredDevice> _devicesCache = {};
+
   bool get isRunning => _isRunning;
 
-  /// Запуск mDNS клиента для обнаружения устройств
+  MDnsService(this._prefs);
+
   Future<void> start() async {
     if (_isRunning) return;
 
+    print('[mDNS] ========================================');
+    print('[mDNS] Starting discovery');
+
+    _startInBackground();
+  }
+
+  void _startInBackground() async {
     try {
+      // Acquire multicast lock (может быть медленным на Android)
+      await MulticastLock.acquire();
+
+      // Создаём ОДИН клиент
       _client = MDnsClient();
       await _client!.start();
+
       _isRunning = true;
+      print('[mDNS] ✓ Client started');
 
-      print(
-        '[mDNS] Service started, listening for ${AppConstants.serviceName}',
-      );
+      // Первый query через 500ms (даём время на инициализацию)
+      Future.delayed(const Duration(milliseconds: 500), _performQuery);
 
-      // Начинаем непрерывное сканирование
-      _startContinuousDiscovery();
+      // Периодические queries каждые 5 секунд (не 1!)
+      _queryTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        if (_isRunning) _performQuery();
+      });
+
+      print('[mDNS] ✓ Discovery running (query every 5 sec)');
     } catch (e) {
-      print('[mDNS] Failed to start: $e');
-      rethrow;
+      print('[mDNS] ✗ Failed to start: $e');
     }
   }
 
-  /// Остановка mDNS клиента
-  Future<void> stop() async {
-    if (!_isRunning) return;
-
-    _client?.stop();
-    _isRunning = false;
-    _client = null;
-
-    print('[mDNS] Service stopped');
-  }
-
-  /// Непрерывное обнаружение устройств с интервалом
-  void _startContinuousDiscovery() {
-    Timer.periodic(AppConstants.discoveryInterval, (timer) async {
-      if (!_isRunning) {
-        timer.cancel();
-        return;
-      }
-
-      await _discoverDevices();
-    });
-  }
-
-  /// Поиск устройств с сервисом _rapid._tcp
-  Future<void> _discoverDevices() async {
-    if (_client == null || !_isRunning) return;
-
+  Future<void> _performQuery() async {
     try {
-      // Ищем PTR записи для нашего сервиса
-      await for (final PtrResourceRecord ptr
-          in _client!
-              .lookup<PtrResourceRecord>(
-                ResourceRecordQuery.serverPointer(AppConstants.serviceName),
-              )
-              .timeout(const Duration(seconds: 3))) {
-        // Для каждой PTR записи получаем SRV (host + port)
-        await _resolveSrvRecords(ptr.domainName);
-      }
+      _client!
+          .lookup<PtrResourceRecord>(
+            ResourceRecordQuery.serverPointer('_rapid._tcp.local'),
+          )
+          .timeout(const Duration(seconds: 2))
+          .listen(
+            (ptr) {
+              print('[mDNS] ← PTR: ${ptr.domainName}');
+              _resolveService(ptr.domainName);
+            },
+            onError: (e) {
+              if (e is! TimeoutException) {
+                print('[mDNS] Query error: $e');
+              }
+            },
+          );
     } catch (e) {
-      // Timeout или другие ошибки - это нормально при сканировании
-      if (e is! TimeoutException) {
-        print('[mDNS] Discovery error: $e');
-      }
+      print('[mDNS] Query exception: $e');
     }
   }
 
-  /// Резолв SRV записей для получения host:port
-  Future<void> _resolveSrvRecords(String domainName) async {
+  Future<void> _resolveService(String serviceName) async {
     try {
+      String? host;
+      int? port;
+      String? ipAddress;
+      final Map<String, String> txtData = {};
+
       await for (final SrvResourceRecord srv
           in _client!
               .lookup<SrvResourceRecord>(
-                ResourceRecordQuery.service(domainName),
+                ResourceRecordQuery.service(serviceName),
               )
               .timeout(const Duration(seconds: 2))) {
-        // Получаем TXT записи для дополнительной информации
-        final txtData = await _resolveTxtRecords(domainName);
-
-        // Резолвим IP адрес из target
-        final ipAddress = await _resolveIpAddress(srv.target);
-
-        if (ipAddress != null) {
-          final device = DiscoveredDevice(
-            name: txtData['name'] ?? domainName,
-            id: txtData['id'] ?? srv.target,
-            host: ipAddress,
-            port: srv.port,
-            protocol: txtData['protocol'] ?? 'https',
-            avatar: txtData['avatar'],
-            metadata: txtData,
-          );
-
-          _discoveredDevicesController.add(device);
-          print(
-            '[mDNS] Discovered: ${device.name} at ${device.host}:${device.port}',
-          );
-        }
+        host = srv.target;
+        port = srv.port;
+        print('[mDNS]   SRV: $host:$port');
+        break;
       }
-    } catch (e) {
-      if (e is! TimeoutException) {
-        print('[mDNS] SRV resolution error: $e');
+
+      if (host == null || port == null) {
+        print('[mDNS]   ✗ No SRV');
+        return;
       }
-    }
-  }
 
-  /// Резолв TXT записей для метаданных
-  Future<Map<String, String>> _resolveTxtRecords(String domainName) async {
-    final Map<String, String> result = {};
+      await for (final IPAddressResourceRecord ip
+          in _client!
+              .lookup<IPAddressResourceRecord>(
+                ResourceRecordQuery.addressIPv4(host),
+              )
+              .timeout(const Duration(seconds: 2))) {
+        ipAddress = ip.address.address;
+        print('[mDNS]   A: $ipAddress');
+        break;
+      }
 
-    try {
+      if (ipAddress == null) {
+        print('[mDNS]   ✗ No A record');
+        return;
+      }
+
       await for (final TxtResourceRecord txt
           in _client!
-              .lookup<TxtResourceRecord>(ResourceRecordQuery.text(domainName))
-              .timeout(const Duration(seconds: 1))) {
-        // txt.text это String, не Iterable
-        // TXT записи могут содержать несколько пар key=value, разделённых пробелами
-        final textData = txt.text;
-
-        // Если это пустая строка, пропускаем
-        if (textData.isEmpty) continue;
-
-        // Разбиваем по пробелам (или другому разделителю)
-        final entries = textData.split(' ');
-
+              .lookup<TxtResourceRecord>(ResourceRecordQuery.text(serviceName))
+              .timeout(const Duration(seconds: 2))) {
+        final entries = txt.text.trim().split('\n');
         for (final entry in entries) {
           final parts = entry.split('=');
-          if (parts.length == 2) {
-            result[parts[0].trim()] = parts[1].trim();
+          if (parts.length >= 2) {
+            txtData[parts[0].trim()] = parts.sublist(1).join('=').trim();
           }
         }
+        print('[mDNS]   TXT: $txtData');
+        break;
       }
-    } catch (e) {
-      // TXT записи не обязательны
-      if (e is! TimeoutException) {
-        print('[mDNS] TXT resolution error: $e');
-      }
-    }
 
-    return result;
+      final deviceId = txtData['id'] ?? serviceName;
+      final myDeviceId = _prefs.getDeviceId();
+
+      print('[mDNS]   Device ID: $deviceId');
+      print('[mDNS]   My ID: $myDeviceId');
+
+      if (deviceId == myDeviceId) {
+        print('[mDNS]   → Ignoring (own device)');
+        return;
+      }
+
+      if (deviceId == myDeviceId) {
+        return; // Своё устройство игнорируем
+      }
+
+      final device = DiscoveredDevice(
+        name: txtData['name'] ?? serviceName,
+        id: deviceId,
+        host: ipAddress,
+        port: port,
+        protocol: txtData['protocol'] ?? 'https',
+        avatar: txtData['avatar'],
+        metadata: txtData,
+      );
+
+      final wasKnown = _devicesCache.containsKey(deviceId);
+
+      _devicesCache[deviceId] = device;
+      _discoveredDevicesController.add(device);
+
+      if (wasKnown) {
+        print(
+          '[mDNS] ✓ Device updated: ${device.name} at ${device.host}:${device.port}',
+        );
+      } else {
+        print(
+          '[mDNS] ✅ NEW DEVICE: ${device.name} at ${device.host}:${device.port}',
+        );
+      }
+    } on TimeoutException {
+      print('[mDNS]   Timeout resolving $serviceName');
+    } catch (e) {
+      print('[mDNS]   Error: $e');
+    }
   }
 
-  /// Резолв IP адреса из hostname
-  Future<String?> _resolveIpAddress(String hostname) async {
+  Future<void> stop() async {
+    if (!_isRunning) return;
+
     try {
-      // Сначала пробуем IPv4
-      await for (final IPAddressResourceRecord ip
-          in _client!
-              .lookup<IPAddressResourceRecord>(
-                ResourceRecordQuery.addressIPv4(hostname),
-              )
-              .timeout(const Duration(seconds: 1))) {
-        return ip.address.address;
-      }
+      _queryTimer?.cancel();
+      await MulticastLock.release();
 
-      // Если не нашли IPv4, пробуем IPv6
-      await for (final IPAddressResourceRecord ip
-          in _client!
-              .lookup<IPAddressResourceRecord>(
-                ResourceRecordQuery.addressIPv6(hostname),
-              )
-              .timeout(const Duration(seconds: 1))) {
-        return ip.address.address;
-      }
+      _isRunning = false;
+      _queryTimer = null;
+      _devicesCache.clear();
+
+      print('[mDNS] Stopped');
     } catch (e) {
-      print('[mDNS] IP resolution failed for $hostname: $e');
+      print('[mDNS] Stop error: $e');
     }
-
-    return null;
   }
 
-  /// Очистка ресурсов
   void dispose() {
     stop();
     _discoveredDevicesController.close();
   }
 }
 
-/// Модель обнаруженного устройства
 class DiscoveredDevice {
   final String id;
   final String name;

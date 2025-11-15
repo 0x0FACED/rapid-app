@@ -45,10 +45,9 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i557.ApiClient>(() => _i557.ApiClient());
     gh.lazySingleton<_i573.SharedPrefsService>(
         () => _i573.SharedPrefsService());
-    gh.lazySingleton<_i398.MDnsService>(() => _i398.MDnsService());
     gh.lazySingleton<_i100.ServiceAnnouncer>(() => _i100.ServiceAnnouncer());
-    gh.lazySingleton<_i450.DeviceDiscovery>(
-        () => _i450.DeviceDiscovery(gh<_i398.MDnsService>()));
+    gh.lazySingleton<_i398.MDnsService>(
+        () => _i398.MDnsService(gh<_i573.SharedPrefsService>()));
     gh.factory<_i408.ReceiveFilesUseCase>(() => _i408.ReceiveFilesUseCase(
           gh<_i557.ApiClient>(),
           gh<_i810.TransferManager>(),
@@ -64,6 +63,8 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i810.TransferManager>(),
           gh<_i573.SharedPrefsService>(),
         ));
+    gh.lazySingleton<_i450.DeviceDiscovery>(
+        () => _i450.DeviceDiscovery(gh<_i398.MDnsService>()));
     gh.factory<_i368.LanBloc>(() => _i368.LanBloc(
           gh<_i674.SettingsRepository>(),
           gh<_i450.DeviceDiscovery>(),

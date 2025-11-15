@@ -108,7 +108,7 @@ class HttpServerService {
     final handler = Pipeline()
         .addMiddleware(logRequests())
         .addMiddleware(_corsMiddleware())
-        .addHandler(router);
+        .addHandler(router.call);
 
     // Запускаем сервер
     try {
@@ -348,7 +348,7 @@ class HttpServerService {
           await sink.close();
           savedPath = filePath;
 
-          print('[Server] File saved: $filePath (${fileSize} bytes)');
+          print('[Server] File saved: $filePath ($fileSize bytes)');
         }
       }
 
