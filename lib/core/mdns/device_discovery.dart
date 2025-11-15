@@ -26,7 +26,7 @@ class DeviceDiscovery {
   List<Device> get devices => List.unmodifiable(_devices);
 
   static const _pingInterval = Duration(
-    milliseconds: 500,
+    milliseconds: 1000,
   ); // Ping каждые 0.5 сек
   static const _maxFailedPings = 6; // 3 секунды (6 * 0.5s) до disconnect
 
@@ -128,7 +128,7 @@ class DeviceDiscovery {
 
       final updatedDevice = Device(
         id: device.id,
-        name: deviceInfo.alias, // ОБНОВЛЁННОЕ имя
+        name: deviceInfo.alias,
         host: device.host,
         port: deviceInfo.port,
         protocol: deviceInfo.protocol,
@@ -142,16 +142,6 @@ class DeviceDiscovery {
       if (index >= 0) {
         _devices[index] = updatedDevice;
         _devicesController.add(List.from(_devices));
-
-        // Логируем только если изменилось имя
-        if (device.name != updatedDevice.name) {
-          print('[Discovery] ✓ ${device.name} → ${updatedDevice.name}');
-        }
-        if (device.avatar != updatedDevice.avatar) {
-          print(
-            '[Discovery] ✓ Avatar updated: ${updatedDevice.avatar?.substring(0, 50) ?? 'null'}...',
-          );
-        }
       }
     } catch (e) {
       // Failed ping

@@ -5,28 +5,38 @@ import '../../features/lan/data/models/transfer_progress_model.dart';
 
 @lazySingleton
 class TransferManager {
-  // Активные передачи: transferId -> TransferProgressModel
   final _activeTransfers = <String, TransferProgressModel>{};
-
-  // Стрим обновлений передач
   final _transfersController =
       StreamController<List<TransferProgressModel>>.broadcast();
+
+  final _cancelTokens = <String, RapidCancelToken>{};
+
+  Timer? _updateTimer;
+
+  // Флаг, что данные менялись с момента последней отправки в стрим
+  bool _hasPendingChanges = false;
+
   Stream<List<TransferProgressModel>> get transfersStream =>
       _transfersController.stream;
-
-  // Контроллеры для отмены отдельных передач
-  final _cancelTokens = <String, RapidCancelToken>{};
 
   UnmodifiableListView<TransferProgressModel> get activeTransfers =>
       UnmodifiableListView(_activeTransfers.values);
 
-  /// Начать новую передачу
-  void startTransfer(TransferProgressModel transfer) {
-    _activeTransfers[transfer.transferId] = transfer;
-    _notifyUpdate();
+  TransferManager() {
+    // Периодический тик раз в секунду — только отсюда пушим в стрим
+    _updateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_hasPendingChanges) {
+        _notifyUpdate();
+        _hasPendingChanges = false;
+      }
+    });
   }
 
-  /// Обновить прогресс передачи
+  void startTransfer(TransferProgressModel transfer) {
+    _activeTransfers[transfer.transferId] = transfer;
+    _markChanged();
+  }
+
   void updateProgress(String transferId, int transferredBytes) {
     final transfer = _activeTransfers[transferId];
     if (transfer == null) return;
@@ -36,10 +46,10 @@ class TransferManager {
       status: TransferStatus.active,
     );
 
-    _notifyUpdate();
+    // Не пушим сразу, только помечаем изменение
+    _markChanged();
   }
 
-  /// Завершить передачу успешно
   void completeTransfer(String transferId) {
     final transfer = _activeTransfers[transferId];
     if (transfer == null) return;
@@ -50,16 +60,15 @@ class TransferManager {
       transferredBytes: transfer.totalBytes,
     );
 
-    _notifyUpdate();
+    _markChanged();
 
     // Удаляем через 5 секунд
     Future.delayed(const Duration(seconds: 5), () {
       _activeTransfers.remove(transferId);
-      _notifyUpdate();
+      _markChanged();
     });
   }
 
-  /// Пометить передачу как неудачную
   void failTransfer(String transferId, String errorMessage) {
     final transfer = _activeTransfers[transferId];
     if (transfer == null) return;
@@ -70,14 +79,10 @@ class TransferManager {
       completedAt: DateTime.now(),
     );
 
-    _notifyUpdate();
+    _markChanged();
   }
 
-  /// Отменить передачу
   void cancelTransfer(String transferId) {
-    final token = _cancelTokens[transferId];
-    token?.cancel();
-
     final transfer = _activeTransfers[transferId];
     if (transfer == null) return;
 
@@ -86,14 +91,24 @@ class TransferManager {
       completedAt: DateTime.now(),
     );
 
-    _notifyUpdate();
+    _markChanged();
 
     // Удаляем через 2 секунды
     Future.delayed(const Duration(seconds: 2), () {
       _activeTransfers.remove(transferId);
-      _cancelTokens.remove(transferId);
-      _notifyUpdate();
+      _markChanged();
     });
+  }
+
+  /// Очистить все завершённые/неудачные передачи
+  void clearCompleted() {
+    _activeTransfers.removeWhere(
+      (_, transfer) =>
+          transfer.status == TransferStatus.completed ||
+          transfer.status == TransferStatus.failed ||
+          transfer.status == TransferStatus.cancelled,
+    );
+    _markChanged();
   }
 
   /// Зарегистрировать cancel token для передачи
@@ -106,15 +121,8 @@ class TransferManager {
     return _activeTransfers[transferId];
   }
 
-  /// Очистить все завершённые/неудачные передачи
-  void clearCompleted() {
-    _activeTransfers.removeWhere(
-      (_, transfer) =>
-          transfer.status == TransferStatus.completed ||
-          transfer.status == TransferStatus.failed ||
-          transfer.status == TransferStatus.cancelled,
-    );
-    _notifyUpdate();
+  void _markChanged() {
+    _hasPendingChanges = true;
   }
 
   void _notifyUpdate() {
@@ -122,11 +130,8 @@ class TransferManager {
   }
 
   void dispose() {
+    _updateTimer?.cancel();
     _transfersController.close();
-    for (var token in _cancelTokens.values) {
-      token.cancel();
-    }
-    _cancelTokens.clear();
   }
 }
 

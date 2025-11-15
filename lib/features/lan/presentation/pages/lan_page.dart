@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rapid/features/lan/domain/entities/device.dart';
 import 'package:rapid/features/lan/domain/entities/shared_file.dart';
 import 'package:rapid/features/lan/presentation/pages/chat_page.dart';
+import 'package:rapid/features/lan/presentation/widgets/transfer_strip.dart';
 import 'package:rapid/features/settings/presentation/bloc/settings_bloc.dart';
 import 'package:rapid/features/settings/presentation/bloc/settings_state.dart';
 import '../../../../core/di/injection.dart';
@@ -117,15 +118,15 @@ class _LANPageContent extends StatelessWidget {
             }
           }
 
+          // ВАЖНО: убрали завязку на activeTransfers,
+          // чтобы список загрузок жил отдельно в TransfersStrip.
           return previous.selectedDevice != current.selectedDevice ||
               previous.isShareMode != current.isShareMode ||
-              previous.sharedFiles.length != current.sharedFiles.length ||
-              previous.activeTransfers.length != current.activeTransfers.length;
+              previous.sharedFiles.length != current.sharedFiles.length;
         }
 
         return true;
       },
-
       builder: (context, state) {
         if (state is LanLoading) {
           return const Scaffold(
@@ -190,39 +191,20 @@ class _LANPageContent extends StatelessWidget {
                     const SizedBox(height: 16),
                   ],
 
-                  if (state.activeTransfers.isNotEmpty)
-                    SizedBox(
-                      height: 100,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: state.activeTransfers.length,
-                        itemBuilder: (context, index) {
-                          return SizedBox(
-                            width: 280,
-                            child: TransferProgressCard(
-                              transfer: state.activeTransfers[index],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                  // НОВОЕ: полоска загрузок на StreamBuilder
+                  const TransfersStrip(),
 
-                  if (state.activeTransfers.isNotEmpty)
-                    const SizedBox(height: 8),
-
-                  // НОВОЕ: AnimatedSwitcher для плавной анимации
+                  // Основной контент
                   Expanded(
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),
                       switchInCurve: Curves.easeInOut,
                       switchOutCurve: Curves.easeInOut,
                       transitionBuilder: (child, animation) {
-                        // Slide transition справа налево
                         final offsetAnimation =
                             Tween<Offset>(
-                              begin: const Offset(1.0, 0.0), // Начало справа
-                              end: Offset.zero, // Конец в центре
+                              begin: const Offset(1.0, 0.0),
+                              end: Offset.zero,
                             ).animate(
                               CurvedAnimation(
                                 parent: animation,

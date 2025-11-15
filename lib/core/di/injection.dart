@@ -43,6 +43,7 @@ Future<void> _startServices() async {
       deviceName: deviceName,
       port: serverPort,
       useHttps: useHttps,
+      avatar: avatar,
     );
     print('[DI] ✓ Server: ${server.port}');
 
@@ -53,7 +54,6 @@ Future<void> _startServices() async {
       deviceName: deviceName,
       serverPort: server.port!,
       protocol: useHttps ? 'https' : 'http',
-      avatar: avatar,
     );
     print('[DI] ✓ Announcer started');
 

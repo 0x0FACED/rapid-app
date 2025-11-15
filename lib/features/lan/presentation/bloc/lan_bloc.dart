@@ -205,12 +205,8 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
     final currentState = state as LanLoaded;
 
-    print('[LanBloc] ========================================');
-    print('[LanBloc] Devices updated from polling:');
-    print('[LanBloc]   Old count: ${currentState.availableDevices.length}');
-    print('[LanBloc]   New count: ${event.devices.length}');
-
     // Детальное сравнение
+    bool hasChanges = false;
     for (final newDevice in event.devices) {
       final oldDevice = currentState.availableDevices
           .cast<Device?>()
@@ -218,20 +214,27 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
       if (oldDevice == null) {
         print('[LanBloc]   + NEW: ${newDevice.name}');
+        hasChanges = true;
+        break;
       } else if (oldDevice.name != newDevice.name) {
         print('[LanBloc]   ~ NAME: ${oldDevice.name} → ${newDevice.name}');
+        hasChanges = true;
+        break;
       } else if (oldDevice.avatar != newDevice.avatar) {
         print('[LanBloc]   ~ AVATAR: ${newDevice.name}');
+        hasChanges = true;
+        break;
       }
     }
 
-    // ВАЖНО: ВСЕГДА эмитим новое состояние с НОВЫМ списком
-    final newState = currentState.copyWith(
-      availableDevices: List.from(event.devices), // Создаём НОВЫЙ список
-    );
+    if (hasChanges == true) {
+      final newState = currentState.copyWith(
+        availableDevices: List.from(event.devices), // Создаём НОВЫЙ список
+      );
 
-    print('[LanBloc] Emitting new state...');
-    emit(newState);
+      print('[LanBloc] Emitting new state...');
+      emit(newState);
+    }
 
     print('[LanBloc] ========================================');
   }
