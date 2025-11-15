@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:injectable/injectable.dart';
+import 'package:rapid/core/network/certificate_manager.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/transfer_manager.dart';
@@ -10,28 +13,35 @@ import '../../data/models/transfer_progress_model.dart';
 import '../entities/device.dart';
 import '../entities/shared_file.dart';
 
-
 @injectable
 class SendFilesUseCase {
   final ApiClient _apiClient;
   final TransferManager _transferManager;
   final SharedPrefsService _prefs;
+  final CertificateManager _certificateManager;
 
-  SendFilesUseCase(this._apiClient, this._transferManager, this._prefs);
+  SendFilesUseCase(
+    this._apiClient,
+    this._transferManager,
+    this._prefs,
+    this._certificateManager,
+  );
 
   /// Отправить файлы на устройство
   Future<void> execute({
     required Device targetDevice,
     required List<SharedFile> files,
   }) async {
+    final fingerprint = await _certificateManager.getFingerprint();
+
     try {
       // 1. Создаём информацию о нашем устройстве
       final ourDeviceInfo = DeviceInfoModel(
         alias: _prefs.getDeviceName(),
         version: '2.0',
-        deviceModel: 'Mobile',
-        deviceType: 'mobile',
-        fingerprint: 'temp', // TODO: получить реальный
+        deviceModel: _getDeviceModel(),
+        deviceType: _getDeviceType(),
+        fingerprint: fingerprint,
         port: _prefs.getServerPort(),
         protocol: _prefs.getUseHttps() ? 'https' : 'http',
       );
@@ -114,5 +124,20 @@ class SendFilesUseCase {
       print('[SendFiles] Error: $e');
       rethrow;
     }
+  }
+
+  // НОВОЕ: Определение модели устройства
+  String _getDeviceModel() {
+    if (Platform.isAndroid) return 'Android';
+    if (Platform.isIOS) return 'iPhone';
+    if (Platform.isLinux) return 'Linux';
+    if (Platform.isWindows) return 'Windows';
+    if (Platform.isMacOS) return 'MacOS';
+    return 'Unknown';
+  }
+
+  // НОВОЕ: Определение типа устройства
+  String _getDeviceType() {
+    return (Platform.isAndroid || Platform.isIOS) ? 'mobile' : 'desktop';
   }
 }

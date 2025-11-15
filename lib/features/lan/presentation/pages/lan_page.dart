@@ -40,9 +40,29 @@ class _LANPageContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<LanBloc, LanState>(
-      builder: (context, state) {
-        print('[LANPage] Building with state: ${state.runtimeType}');
+      buildWhen: (previous, current) {
+        if (previous is LanLoaded && current is LanLoaded) {
+          final prevCount = previous.availableDevices.length;
+          final currCount = current.availableDevices.length;
 
+          if (prevCount != currCount) return true;
+
+          final prevIds = previous.availableDevices.map((d) => d.id).toSet();
+          final currIds = current.availableDevices.map((d) => d.id).toSet();
+
+          if (!prevIds.containsAll(currIds) || !currIds.containsAll(prevIds)) {
+            return true;
+          }
+
+          return previous.selectedDevice != current.selectedDevice ||
+              previous.isShareMode != current.isShareMode ||
+              previous.sharedFiles.length != current.sharedFiles.length ||
+              previous.activeTransfers.length != current.activeTransfers.length;
+        }
+
+        return true;
+      },
+      builder: (context, state) {
         if (state is LanLoading) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
@@ -73,25 +93,19 @@ class _LANPageContent extends StatelessWidget {
         if (state is LanLoaded) {
           final selectedDevice = state.selectedDevice;
 
-          // ИСПРАВЛЕНО: WillPopScope с правильной логикой
           return PopScope(
-            canPop:
-                selectedDevice ==
-                null, // Можем выйти только если устройство не выбрано
+            canPop: selectedDevice == null,
             onPopInvoked: (didPop) {
               if (!didPop && selectedDevice != null) {
-                // Если пытаемся выйти, но устройство выбрано - deselect
                 context.read<LanBloc>().add(const LanSelectDevice(null));
               }
             },
             child: Scaffold(
               appBar: AppBar(
-                // ИСПРАВЛЕНО: leading только если устройство выбрано
                 leading: selectedDevice != null
                     ? IconButton(
                         icon: const Icon(Icons.arrow_back),
                         onPressed: () {
-                          print('[LANPage] Back button pressed');
                           context.read<LanBloc>().add(
                             const LanSelectDevice(null),
                           );
@@ -105,7 +119,6 @@ class _LANPageContent extends StatelessWidget {
               ),
               body: Column(
                 children: [
-                  // Профиль и toggle только когда устройство НЕ выбрано
                   if (selectedDevice == null) ...[
                     UserProfileCard(settings: state.userSettings),
                     const SizedBox(height: 16),
@@ -113,7 +126,6 @@ class _LANPageContent extends StatelessWidget {
                     const SizedBox(height: 16),
                   ],
 
-                  // Активные передачи
                   if (state.activeTransfers.isNotEmpty)
                     SizedBox(
                       height: 100,
@@ -135,23 +147,51 @@ class _LANPageContent extends StatelessWidget {
                   if (state.activeTransfers.isNotEmpty)
                     const SizedBox(height: 8),
 
-                  // Основной контент
+                  // НОВОЕ: AnimatedSwitcher для плавной анимации
                   Expanded(
-                    child: selectedDevice != null
-                        ? _DeviceFilesView(
-                            device: selectedDevice,
-                            files: state.receivedFiles ?? [],
-                          )
-                        : (state.isShareMode
-                              ? _ShareModeContent(
-                                  sharedFiles: state.sharedFiles,
-                                )
-                              : _ReceiveModeContent(
-                                  devices: state.availableDevices,
-                                )),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      switchInCurve: Curves.easeInOut,
+                      switchOutCurve: Curves.easeInOut,
+                      transitionBuilder: (child, animation) {
+                        // Slide transition справа налево
+                        final offsetAnimation =
+                            Tween<Offset>(
+                              begin: const Offset(1.0, 0.0), // Начало справа
+                              end: Offset.zero, // Конец в центре
+                            ).animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.easeOutCubic,
+                              ),
+                            );
+
+                        return SlideTransition(
+                          position: offsetAnimation,
+                          child: FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: selectedDevice != null
+                          ? _DeviceFilesView(
+                              key: ValueKey('device_${selectedDevice.id}'),
+                              device: selectedDevice,
+                              files: state.receivedFiles ?? [],
+                            )
+                          : (state.isShareMode
+                                ? _ShareModeContent(
+                                    key: const ValueKey('share_mode'),
+                                    sharedFiles: state.sharedFiles,
+                                  )
+                                : _ReceiveModeContent(
+                                    key: const ValueKey('receive_mode'),
+                                    devices: state.availableDevices,
+                                  )),
+                    ),
                   ),
 
-                  // Поле для текста только когда устройство НЕ выбрано
                   if (selectedDevice == null) const TextShareInput(),
                 ],
               ),
@@ -232,7 +272,7 @@ class _ModeToggle extends StatelessWidget {
 class _ShareModeContent extends StatelessWidget {
   final List<SharedFile> sharedFiles;
 
-  const _ShareModeContent({required this.sharedFiles});
+  const _ShareModeContent({super.key, required this.sharedFiles});
 
   @override
   Widget build(BuildContext context) {
@@ -260,7 +300,7 @@ class _ShareModeContent extends StatelessWidget {
 class _ReceiveModeContent extends StatelessWidget {
   final List<Device> devices;
 
-  const _ReceiveModeContent({required this.devices});
+  const _ReceiveModeContent({super.key, required this.devices});
 
   @override
   Widget build(BuildContext context) {
@@ -273,198 +313,208 @@ class _DeviceFilesView extends StatelessWidget {
   final Device device;
   final List<SharedFile> files;
 
-  const _DeviceFilesView({required this.device, required this.files});
+  const _DeviceFilesView({
+    super.key,
+    required this.device,
+    required this.files,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         // ИСПРАВЛЕНО: Плашка с padding и закруглениями
-        Padding(
-          padding: const EdgeInsets.all(16), // Padding как на основной странице
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Theme.of(context).colorScheme.tertiary,
-                  Theme.of(context).colorScheme.tertiary.withOpacity(0.7),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20), // Закругленные края
-              boxShadow: [
-                BoxShadow(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.tertiary.withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Верхняя часть: иконка + название + кнопка refresh
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.3),
-                          width: 2,
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.devices,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            device.name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black26,
-                                  offset: Offset(0, 2),
-                                  blurRadius: 4,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${device.host}:${device.port}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.9),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(
-                          Icons.refresh_rounded,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                        onPressed: () {
-                          context.read<LanBloc>().add(
-                            LanRefreshDeviceFiles(device.id),
-                          );
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Refreshing files...'),
-                              duration: Duration(seconds: 1),
-                            ),
-                          );
-                        },
-                      ),
+        Hero(
+          tag: 'device_card_${device.id}',
+          child: Material(
+            type: MaterialType.transparency,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Theme.of(context).colorScheme.tertiary,
+                      Theme.of(context).colorScheme.tertiary.withOpacity(0.7),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.tertiary.withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),
-
-                const SizedBox(height: 12),
-
-                // Info chips
-                Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildInfoChip(
-                      context,
-                      icon: Icons.folder_rounded,
-                      label: '${files.length} files',
-                    ),
-                    const SizedBox(width: 8),
-                    _buildInfoChip(
-                      context,
-                      icon: device.protocol == 'https'
-                          ? Icons.lock_rounded
-                          : Icons.lock_open_rounded,
-                      label: device.protocol.toUpperCase(),
-                    ),
-                    const SizedBox(width: 8),
-                    _buildInfoChip(
-                      context,
-                      icon: Icons.check_circle_rounded,
-                      label: 'Online',
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // НОВОЕ: Кнопки действий
-                Row(
-                  children: [
-                    // Кнопка "Добавить в избранное"
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          _addToFavorites(context, device);
-                        },
-                        icon: const Icon(Icons.star_rounded, size: 18),
-                        label: const Text('Favorite'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white.withOpacity(0.2),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
+                    // Верхняя часть: иконка + название + кнопка refresh
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(
+                            border: Border.all(
                               color: Colors.white.withOpacity(0.3),
-                              width: 1,
+                              width: 2,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.devices,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                device.name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black26,
+                                      offset: Offset(0, 2),
+                                      blurRadius: 4,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${device.host}:${device.port}',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.refresh_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            onPressed: () {
+                              context.read<LanBloc>().add(
+                                LanRefreshDeviceFiles(device.id),
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Refreshing files...'),
+                                  duration: Duration(seconds: 1),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Info chips
+                    Row(
+                      children: [
+                        _buildInfoChip(
+                          context,
+                          icon: Icons.folder_rounded,
+                          label: '${files.length} files',
+                        ),
+                        const SizedBox(width: 8),
+                        _buildInfoChip(
+                          context,
+                          icon: device.protocol == 'https'
+                              ? Icons.lock_rounded
+                              : Icons.lock_open_rounded,
+                          label: device.protocol.toUpperCase(),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildInfoChip(
+                          context,
+                          icon: Icons.check_circle_rounded,
+                          label: 'Online',
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // НОВОЕ: Кнопки действий
+                    Row(
+                      children: [
+                        // Кнопка "Добавить в избранное"
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              _addToFavorites(context, device);
+                            },
+                            icon: const Icon(Icons.star_rounded, size: 18),
+                            label: const Text('Favorite'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white.withOpacity(0.2),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: Colors.white.withOpacity(0.3),
+                                  width: 1,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Кнопка "Открыть чат"
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          _openChat(context, device);
-                        },
-                        icon: const Icon(Icons.chat_rounded, size: 18),
-                        label: const Text('Chat'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Theme.of(
-                            context,
-                          ).colorScheme.tertiary,
-                          elevation: 2,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                        const SizedBox(width: 12),
+                        // Кнопка "Открыть чат"
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              _openChat(context, device);
+                            },
+                            icon: const Icon(Icons.chat_rounded, size: 18),
+                            label: const Text('Chat'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Theme.of(
+                                context,
+                              ).colorScheme.tertiary,
+                              elevation: 2,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

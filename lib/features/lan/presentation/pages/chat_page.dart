@@ -297,9 +297,12 @@ class _MessageBubble extends StatelessWidget {
             const SizedBox(width: 8),
           ],
           Flexible(
-            // НОВОЕ: GestureDetector с long press
+            // ИСПРАВЛЕНО: GestureDetector с tap и secondaryTap
             child: GestureDetector(
-              onLongPress: () => _showContextMenu(context, message),
+              // Обычный tap (мобильные)
+              onTap: () => _showContextMenu(context, message),
+              // Правый клик (десктоп)
+              onSecondaryTap: () => _showContextMenu(context, message),
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -331,18 +334,14 @@ class _MessageBubble extends StatelessWidget {
                           ),
                         ),
                       ),
-                    // НОВОЕ: SelectableText для выделения части текста
-                    SelectableText(
+                    // Обычный Text (без SelectableText)
+                    Text(
                       message.text,
                       style: TextStyle(
                         color: isMe
                             ? Colors.white
                             : Theme.of(context).colorScheme.onSurface,
                       ),
-                      // Убираем toolbar чтобы не конфликтовал с нашим меню
-                      contextMenuBuilder: (context, editableTextState) {
-                        return const SizedBox.shrink();
-                      },
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -389,7 +388,7 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 ],
               ),
-              clipBehavior: Clip.antiAlias, // ВАЖНО для ripple
+              clipBehavior: Clip.antiAlias,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -425,75 +424,44 @@ class _MessageBubble extends StatelessWidget {
 
                   const Divider(height: 1),
 
-                  // ИСПРАВЛЕНО: Material + InkWell для ripple
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () {
-                        Navigator.pop(context);
-                        _copyMessage(context, message);
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 16,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.copy_rounded,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                            const SizedBox(width: 16),
-                            const Text('Copy', style: TextStyle(fontSize: 16)),
-                          ],
-                        ),
-                      ),
+                  // Копирование
+                  ListTile(
+                    leading: Icon(
+                      Icons.copy_rounded,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
+                    title: const Text('Copy'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _copyMessage(context, message);
+                    },
                   ),
 
-                  // Кнопка удаления
+                  // Удаление (для своих сообщений)
                   if (message.isSentByMe) ...[
                     const Divider(height: 1),
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Delete - coming soon'),
-                              duration: Duration(seconds: 1),
-                            ),
-                          );
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 16,
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.delete_rounded,
-                                color: Theme.of(context).colorScheme.error,
-                              ),
-                              const SizedBox(width: 16),
-                              Text(
-                                'Delete',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                              ),
-                            ],
-                          ),
+                    ListTile(
+                      leading: Icon(
+                        Icons.delete_rounded,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      title: Text(
+                        'Delete',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
                         ),
                       ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Delete - coming soon'),
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                      },
                     ),
                   ],
-
-                  const SizedBox(height: 8),
                 ],
               ),
             ),
