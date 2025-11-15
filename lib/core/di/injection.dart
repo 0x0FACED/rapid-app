@@ -3,7 +3,6 @@ import 'package:injectable/injectable.dart';
 import 'injection.config.dart';
 import '../network/http_server.dart';
 import '../network/broadcast_announcer.dart';
-import '../mdns/service_announcer.dart';
 import '../mdns/device_discovery.dart';
 import '../storage/shared_prefs_service.dart';
 
@@ -33,6 +32,7 @@ Future<void> _startServices() async {
     final deviceName = prefs.getDeviceName();
     final useHttps = prefs.getUseHttps();
     final serverPort = prefs.getServerPort();
+    final avatar = prefs.getDeviceAvatar();
 
     print('[DI] Device: $deviceName ($deviceId)');
 
@@ -53,6 +53,7 @@ Future<void> _startServices() async {
       deviceName: deviceName,
       serverPort: server.port!,
       protocol: useHttps ? 'https' : 'http',
+      avatar: avatar,
     );
     print('[DI] ✓ Announcer started');
 

@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../domain/entities/device.dart';
@@ -11,8 +13,6 @@ class DeviceList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    print('[DeviceList] Building with ${devices.length} devices');
-
     if (devices.isEmpty) {
       return Center(
         child: Column(
@@ -44,24 +44,21 @@ class DeviceList extends StatelessWidget {
       );
     }
 
-    // ТОЛЬКО список устройств, БЕЗ обработки selectedDevice
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: devices.length,
       itemBuilder: (context, index) {
         final device = devices[index];
-        print('[DeviceList] Item $index: ${device.name}');
-        return _DeviceCard(device: device);
+        return _DeviceCard(device: device, key: ValueKey(device.id));
       },
     );
   }
 }
 
-/// Карточка устройства
 class _DeviceCard extends StatelessWidget {
   final Device device;
 
-  const _DeviceCard({required this.device});
+  const _DeviceCard({super.key, required this.device});
 
   @override
   Widget build(BuildContext context) {
@@ -72,30 +69,14 @@ class _DeviceCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () {
-          print('[DeviceCard] Tapped: ${device.id}');
           context.read<LanBloc>().add(LanSelectDevice(device.id));
         },
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // Иконка устройства
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: device.isOnline
-                      ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
-                      : Colors.grey.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.devices,
-                  color: device.isOnline
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey,
-                  size: 32,
-                ),
-              ),
+              // ИСПРАВЛЕНО: Показываем аватарку или fallback
+              _buildAvatar(context),
 
               const SizedBox(width: 16),
 
@@ -173,6 +154,52 @@ class _DeviceCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar(BuildContext context) {
+    print('[DeviceCard] Building avatar for ${device.name}');
+
+    if (device.avatar != null && device.avatar!.isNotEmpty) {
+      print('[DeviceCard]   avatar length: ${device.avatar!.length} chars');
+
+      // ИСПРАВЛЕНО: Проверяем что это base64
+      try {
+        final bytes = base64Decode(device.avatar!);
+        print('[DeviceCard]   ✓ Decoded ${bytes.length} bytes from base64');
+        return CircleAvatar(
+          radius: 28,
+          backgroundImage: MemoryImage(bytes),
+          onBackgroundImageError: (error, stackTrace) {
+            print('[DeviceCard]   ✗ Failed to load image: $error');
+          },
+        );
+      } catch (e) {
+        print('[DeviceCard]   ✗ Not a valid base64: $e');
+      }
+    } else {
+      print('[DeviceCard]   avatar is null or empty');
+    }
+
+    // Fallback
+    print('[DeviceCard]   → Using fallback icon');
+    return Container(
+      width: 56,
+      height: 56,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: device.isOnline
+            ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+            : Colors.grey.withOpacity(0.1),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        Icons.devices,
+        color: device.isOnline
+            ? Theme.of(context).colorScheme.primary
+            : Colors.grey,
+        size: 32,
       ),
     );
   }

@@ -60,6 +60,7 @@ class HttpServerService {
   late String _deviceId;
   late String _deviceName;
   late String _fingerprint;
+  String? _avatarBase64;
 
   // Callback'и для обработки запросов
   final _sendRequestController = StreamController<SendRequestModel>.broadcast();
@@ -85,6 +86,7 @@ class HttpServerService {
   Future<void> start({
     required String deviceId,
     required String deviceName,
+    String? avatar,
     int? port,
     bool useHttps = true,
   }) async {
@@ -92,6 +94,18 @@ class HttpServerService {
 
     _deviceId = deviceId;
     _deviceName = deviceName;
+    if (avatar != null && avatar.isNotEmpty) {
+      try {
+        final file = File(avatar);
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          _avatarBase64 = base64Encode(bytes);
+          print('[Server] Avatar ok: ${bytes.length} bytes');
+        }
+      } catch (e) {
+        _avatarBase64 = null;
+      }
+    }
 
     // Инициализируем сертификаты если нужен HTTPS
     if (useHttps) {
@@ -192,18 +206,15 @@ class HttpServerService {
           ? 'Android'
           : Platform.isIOS
           ? 'iPhone'
-          : Platform.isWindows
-          ? 'Windows'
           : Platform.isLinux
           ? 'Linux'
-          : Platform.isMacOS
-          ? 'MacOS'
-          : 'Unknown',
+          : 'Desktop',
       deviceType: Platform.isAndroid || Platform.isIOS ? 'mobile' : 'desktop',
       fingerprint: _fingerprint,
       port: _server!.port,
       protocol: _certificateManager.securityContext != null ? 'https' : 'http',
       download: true,
+      avatar: _avatarBase64, // НОВОЕ: отдаём аватарку
     );
 
     return Response.ok(

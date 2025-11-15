@@ -1,64 +1,51 @@
-import 'package:equatable/equatable.dart';
+class DeviceInfoModel {
+  final String alias;
+  final String version;
+  final String deviceModel;
+  final String deviceType;
+  final String fingerprint;
+  final int port;
+  final String protocol;
+  final bool download;
+  final String? avatar; // НОВОЕ
 
-/// Модель информации об устройстве для API
-class DeviceInfoModel extends Equatable {
-  final String alias; // Псевдоним устройства
-  final String version; // Версия протокола (2.0)
-  final String? deviceModel; // Модель устройства
-  final String? deviceType; // mobile | desktop | web | headless
-  final String fingerprint; // SHA-256 хеш сертификата
-  final int port; // Порт сервера
-  final String protocol; // http | https
-  final bool download; // Поддержка download API
-
-  const DeviceInfoModel({
+  DeviceInfoModel({
     required this.alias,
     required this.version,
-    this.deviceModel,
-    this.deviceType,
+    required this.deviceModel,
+    required this.deviceType,
     required this.fingerprint,
     required this.port,
-    this.protocol = 'https',
+    required this.protocol,
     this.download = true,
+    this.avatar, // НОВОЕ
   });
 
-  /// Сериализация в JSON
-  Map<String, dynamic> toJson() {
-    return {
-      'alias': alias,
-      'version': version,
-      if (deviceModel != null) 'deviceModel': deviceModel,
-      if (deviceType != null) 'deviceType': deviceType,
-      'fingerprint': fingerprint,
-      'port': port,
-      'protocol': protocol,
-      'download': download,
-    };
-  }
-
-  /// Десериализация из JSON
   factory DeviceInfoModel.fromJson(Map<String, dynamic> json) {
     return DeviceInfoModel(
       alias: json['alias'] as String,
       version: json['version'] as String,
-      deviceModel: json['deviceModel'] as String?,
-      deviceType: json['deviceType'] as String?,
+      deviceModel: json['deviceModel'] as String? ?? 'Unknown',
+      deviceType: json['deviceType'] as String? ?? 'desktop',
       fingerprint: json['fingerprint'] as String,
       port: json['port'] as int,
       protocol: json['protocol'] as String? ?? 'https',
       download: json['download'] as bool? ?? true,
+      avatar: json['avatar'] as String?, // НОВОЕ
     );
   }
 
-  @override
-  List<Object?> get props => [
-    alias,
-    version,
-    deviceModel,
-    deviceType,
-    fingerprint,
-    port,
-    protocol,
-    download,
-  ];
+  Map<String, dynamic> toJson() {
+    return {
+      'alias': alias,
+      'version': version,
+      'deviceModel': deviceModel,
+      'deviceType': deviceType,
+      'fingerprint': fingerprint,
+      'port': port,
+      'protocol': protocol,
+      'download': download,
+      'avatar': avatar, // НОВОЕ
+    };
+  }
 }

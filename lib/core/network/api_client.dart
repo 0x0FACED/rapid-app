@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -31,14 +32,36 @@ class ApiClient {
     };
   }
 
-  /// GET /api/rapid/v2/info - Получить информацию об устройстве
-  Future<DeviceInfoModel> getDeviceInfo(String baseUrl) async {
+  Future<DeviceInfoModel?> getDeviceInfo(String baseUrl) async {
     try {
       final response = await _dio.get('$baseUrl/api/rapid/v2/info');
-      return DeviceInfoModel.fromJson(response.data as Map<String, dynamic>);
+
+      if (response.statusCode != 200) {
+        print('[API] Bad HTTP status: ${response.statusCode}');
+        return null;
+      }
+
+      // Проверяем что body — это JSON map!
+      if (response.data is Map<String, dynamic>) {
+        return DeviceInfoModel.fromJson(response.data as Map<String, dynamic>);
+      }
+      if (response.data is String) {
+        // Попробуем распарсить как JSON (на всякий)
+        try {
+          final map = jsonDecode(response.data);
+          if (map is Map<String, dynamic>) {
+            return DeviceInfoModel.fromJson(map);
+          }
+        } catch (e) {
+          print("[API] Failed to decode string JSON: $e");
+        }
+        print("[API] Response not map, from string: ${response.data}");
+      }
+      print('[API] Response data is not a Map: ${response.data.runtimeType}');
+      return null;
     } catch (e) {
       print('[API] Get device info error: $e');
-      rethrow;
+      return null;
     }
   }
 

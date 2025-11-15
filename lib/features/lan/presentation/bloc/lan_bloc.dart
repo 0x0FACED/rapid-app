@@ -199,27 +199,40 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
   void _onDevicesUpdated(LanDevicesUpdated event, Emitter<LanState> emit) {
     if (state is! LanLoaded) {
-      print('[LanBloc] ⚠️ State is not LanLoaded, ignoring');
+      print('[LanBloc] ⚠️ State is ${state.runtimeType}, not LanLoaded');
       return;
     }
 
     final currentState = state as LanLoaded;
 
     print('[LanBloc] ========================================');
-    print('[LanBloc] Devices updated:');
-    print('[LanBloc]   Old: ${currentState.availableDevices.length}');
-    print('[LanBloc]   New: ${event.devices.length}');
+    print('[LanBloc] Devices updated from polling:');
+    print('[LanBloc]   Old count: ${currentState.availableDevices.length}');
+    print('[LanBloc]   New count: ${event.devices.length}');
 
-    for (final device in event.devices) {
-      print('[LanBloc]   - ${device.name} (${device.id})');
+    // Детальное сравнение
+    for (final newDevice in event.devices) {
+      final oldDevice = currentState.availableDevices
+          .cast<Device?>()
+          .firstWhere((d) => d?.id == newDevice.id, orElse: () => null);
+
+      if (oldDevice == null) {
+        print('[LanBloc]   + NEW: ${newDevice.name}');
+      } else if (oldDevice.name != newDevice.name) {
+        print('[LanBloc]   ~ NAME: ${oldDevice.name} → ${newDevice.name}');
+      } else if (oldDevice.avatar != newDevice.avatar) {
+        print('[LanBloc]   ~ AVATAR: ${newDevice.name}');
+      }
     }
 
+    // ВАЖНО: ВСЕГДА эмитим новое состояние с НОВЫМ списком
     final newState = currentState.copyWith(
-      availableDevices: List.from(event.devices), // НОВЫЙ список
+      availableDevices: List.from(event.devices), // Создаём НОВЫЙ список
     );
 
+    print('[LanBloc] Emitting new state...');
     emit(newState);
-    print('[LanBloc] ✓ State emitted');
+
     print('[LanBloc] ========================================');
   }
 
@@ -317,6 +330,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
     // Проверяем что устройство всё ещё выбрано
     if (currentState.selectedDevice?.id != event.deviceId) {
+      print('[LanBloc] Device not selected anymore, skipping refresh');
       return;
     }
 
@@ -336,15 +350,53 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         );
       }).toList();
 
-      // Обновляем только если список изменился
-      final oldCount = currentState.receivedFiles?.length ?? 0;
-      if (receivedFiles.length != oldCount) {
-        print('[LanBloc] Files updated: $oldCount -> ${receivedFiles.length}');
+      // ИСПРАВЛЕНО: Проверяем не только количество, но и ID файлов
+      final oldFiles = currentState.receivedFiles ?? [];
+      final oldCount = oldFiles.length;
+      final newCount = receivedFiles.length;
+
+      // Сравниваем ID файлов
+      final oldIds = oldFiles.map((f) => f.id).toSet();
+      final newIds = receivedFiles.map((f) => f.id).toSet();
+
+      // Проверяем что списки различаются
+      final hasChanges =
+          oldCount != newCount ||
+          !oldIds.containsAll(newIds) ||
+          !newIds.containsAll(oldIds);
+
+      if (hasChanges) {
+        // Детальное логирование изменений
+        final added = newIds.difference(oldIds);
+        final removed = oldIds.difference(newIds);
+
+        if (added.isNotEmpty) {
+          print('[LanBloc] Files added: ${added.length}');
+          for (final id in added) {
+            final file = receivedFiles.firstWhere((f) => f.id == id);
+            print('[LanBloc]   + ${file.name}');
+          }
+        }
+
+        if (removed.isNotEmpty) {
+          print('[LanBloc] Files removed: ${removed.length}');
+          for (final id in removed) {
+            final file = oldFiles.firstWhere((f) => f.id == id);
+            print('[LanBloc]   - ${file.name}');
+          }
+        }
+
+        if (added.isEmpty && removed.isEmpty && oldCount != newCount) {
+          print('[LanBloc] Files updated: $oldCount → $newCount');
+        }
 
         emit(currentState.copyWith(receivedFiles: receivedFiles));
+      } else {
+        // Без изменений - не логируем каждый раз
+        // print('[LanBloc] Files unchanged: $oldCount files');
       }
     } catch (e) {
-      print('[LanBloc] Failed to refresh files: $e');
+      print('[LanBloc] ✗ Failed to refresh files: $e');
       // Не показываем ошибку пользователю при auto-refresh
     }
   }
@@ -430,12 +482,18 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
     final currentState = state as LanLoaded;
 
-    final device = currentState.availableDevices.firstWhere(
-      (d) => d.id == event.sourceDeviceId,
+    final device = currentState.availableDevices.cast<Device?>().firstWhere(
+      (d) => d?.id == event.sourceDeviceId,
+      orElse: () => null,
     );
 
+    if (device == null) {
+      print('[LanBloc] Device not found: ${event.sourceDeviceId}');
+      return;
+    }
+
     try {
-      // НОВОЕ: Сначала обновляем список файлов
+      // Проверяем доступность файлов
       print('[LanBloc] Checking if files still available...');
       final filesData = await _apiClient.getAvailableFiles(device.baseUrl);
 
@@ -451,7 +509,6 @@ class LanBloc extends Bloc<LanEvent, LanState> {
           '[LanBloc] ⚠️ Some files are no longer available: $unavailableFiles',
         );
 
-        // Уведомляем пользователя
         _notificationService.addFileDownloadFailedNotification(
           deviceName: device.name,
           fileName: '${unavailableFiles.length} file(s)',
@@ -486,15 +543,25 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         return;
       }
 
+      // ИСПРАВЛЕНО: Получаем реальные пути
       _receiveFilesUseCase
           .execute(sourceDevice: device, files: filesToReceive)
-          .then((_) {
+          .then((downloadedPaths) {
             // Успешно скачано
-            _notificationService.addFileDownloadedNotification(
-              deviceName: device.name,
-              fileName: filesToReceive.first.name,
-              filePath: '/path/to/file', // TODO: реальный путь
-            );
+            for (int i = 0; i < filesToReceive.length; i++) {
+              final file = filesToReceive[i];
+              final path = i < downloadedPaths.length
+                  ? downloadedPaths[i]
+                  : 'unknown';
+
+              _notificationService.addFileDownloadedNotification(
+                deviceName: device.name,
+                fileName: file.name,
+                filePath: path, // ИСПРАВЛЕНО: Реальный путь
+              );
+
+              print('[LanBloc] ✓ Downloaded: $path');
+            }
           })
           .catchError((e) {
             print('[LanBloc] Receive files error: $e');
@@ -524,17 +591,41 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   ) async {
     if (state is! LanLoaded) return;
 
-    try {
-      final currentState = state as LanLoaded;
-      final updatedSettings = await _settingsRepository.getSettings();
+    final currentState = state as LanLoaded;
 
-      // Проверяем, изменились ли настройки
-      if (updatedSettings != currentState.userSettings) {
-        emit(currentState.copyWith(userSettings: updatedSettings));
-        print('[LanBloc] Settings refreshed: ${updatedSettings.deviceName}');
-      }
+    try {
+      print('[LanBloc] Refreshing settings...');
+
+      // Загружаем новые настройки
+      final newSettings = await _settingsRepository.getSettings();
+
+      print(
+        '[LanBloc] New settings: ${newSettings.deviceName}, avatar: ${newSettings.avatar}',
+      );
+
+      // ВАЖНО: Сначала эмитим новое состояние
+      emit(currentState.copyWith(userSettings: newSettings));
+
+      print('[LanBloc] State emitted with new settings');
+
+      // Потом перезапускаем сервисы
+      await _httpServer.stop();
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _httpServer.start(
+        deviceId: newSettings.deviceId,
+        deviceName: newSettings.deviceName,
+        port: newSettings.serverPort,
+        useHttps: newSettings.useHttps,
+        avatar: newSettings.avatar, // НОВОЕ
+      );
+
+      // Перезапускаем discovery
+      await _deviceDiscovery.stop();
+      await _deviceDiscovery.start();
+
+      print('[LanBloc] ✓ Services restarted with new settings');
     } catch (e) {
-      print('[LanBloc] Failed to refresh settings: $e');
+      print('[LanBloc] ✗ Failed to refresh settings: $e');
     }
   }
 

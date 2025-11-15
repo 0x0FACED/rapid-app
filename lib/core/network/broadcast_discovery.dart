@@ -81,6 +81,7 @@ class BroadcastDiscovery {
         name: json['name'] as String,
         host: json['host'] as String,
         port: json['port'] as int,
+        //avatar: json['avatar'] as String?,
         protocol: json['protocol'] as String? ?? 'https',
       );
 
@@ -148,6 +149,7 @@ class DiscoveredDevice {
   final String host;
   final int port;
   final String protocol;
+  final String? avatar;
 
   DiscoveredDevice({
     required this.id,
@@ -155,6 +157,7 @@ class DiscoveredDevice {
     required this.host,
     required this.port,
     this.protocol = 'https',
+    this.avatar,
   });
 
   String get baseUrl => '$protocol://$host:$port';

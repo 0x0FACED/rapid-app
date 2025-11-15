@@ -42,16 +42,79 @@ class _LANPageContent extends StatelessWidget {
     return BlocBuilder<LanBloc, LanState>(
       buildWhen: (previous, current) {
         if (previous is LanLoaded && current is LanLoaded) {
+          // Проверяем изменения userSettings
+          if (previous.userSettings.deviceName !=
+                  current.userSettings.deviceName ||
+              previous.userSettings.avatar != current.userSettings.avatar) {
+            print('[LANPage] Settings changed, rebuilding...');
+            return true;
+          }
+
+          // Проверяем изменения устройств
           final prevCount = previous.availableDevices.length;
           final currCount = current.availableDevices.length;
 
-          if (prevCount != currCount) return true;
+          if (prevCount != currCount) {
+            print('[LANPage] Device count changed: $prevCount → $currCount');
+            return true;
+          }
 
           final prevIds = previous.availableDevices.map((d) => d.id).toSet();
           final currIds = current.availableDevices.map((d) => d.id).toSet();
 
           if (!prevIds.containsAll(currIds) || !currIds.containsAll(prevIds)) {
+            print('[LANPage] Device IDs changed');
             return true;
+          }
+
+          // Проверяем изменения внутри устройств
+          for (int i = 0; i < previous.availableDevices.length; i++) {
+            final prevDevice = previous.availableDevices[i];
+            final currDevice = current.availableDevices
+                .cast<Device?>()
+                .firstWhere((d) => d?.id == prevDevice.id, orElse: () => null);
+
+            if (currDevice != null) {
+              if (prevDevice.name != currDevice.name) {
+                print(
+                  '[LANPage] Device name changed: ${prevDevice.name} → ${currDevice.name}',
+                );
+                return true;
+              }
+              if (prevDevice.avatar != currDevice.avatar) {
+                print('[LANPage] Device avatar changed for ${currDevice.name}');
+                return true;
+              }
+            }
+          }
+
+          // НОВОЕ: Проверяем изменения receivedFiles
+          final prevFiles = previous.receivedFiles;
+          final currFiles = current.receivedFiles;
+
+          if ((prevFiles == null) != (currFiles == null)) {
+            print(
+              '[LANPage] receivedFiles changed: ${prevFiles == null} → ${currFiles == null}',
+            );
+            return true;
+          }
+
+          if (prevFiles != null && currFiles != null) {
+            final prevFileIds = prevFiles.map((f) => f.id).toSet();
+            final currFileIds = currFiles.map((f) => f.id).toSet();
+
+            if (prevFiles.length != currFiles.length) {
+              print(
+                '[LANPage] File count changed: ${prevFiles.length} → ${currFiles.length}',
+              );
+              return true;
+            }
+
+            if (!prevFileIds.containsAll(currFileIds) ||
+                !currFileIds.containsAll(prevFileIds)) {
+              print('[LANPage] File IDs changed');
+              return true;
+            }
           }
 
           return previous.selectedDevice != current.selectedDevice ||
@@ -62,6 +125,7 @@ class _LANPageContent extends StatelessWidget {
 
         return true;
       },
+
       builder: (context, state) {
         if (state is LanLoading) {
           return const Scaffold(
@@ -728,9 +792,12 @@ class _FileCard extends StatelessWidget {
   }
 
   void _showFileOptions(BuildContext context) {
+    // ИСПРАВЛЕНО: Захватываем BLoC ДО открытия BottomSheet
+    final lanBloc = context.read<LanBloc>();
+
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (bottomSheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -738,15 +805,23 @@ class _FileCard extends StatelessWidget {
               leading: const Icon(Icons.download),
               title: const Text('Download'),
               onTap: () {
-                Navigator.pop(context);
-                _downloadFile(context);
+                Navigator.pop(bottomSheetContext);
+                // ИСПРАВЛЕНО: Используем захваченный BLoC
+                lanBloc.add(LanReceiveFiles(device.id, [file.id]));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Downloading ${file.name}...'),
+                    duration: const Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
               },
             ),
             ListTile(
               leading: const Icon(Icons.info_outline),
               title: const Text('File info'),
               onTap: () {
-                Navigator.pop(context);
+                Navigator.pop(bottomSheetContext);
                 _showFileInfo(context);
               },
             ),

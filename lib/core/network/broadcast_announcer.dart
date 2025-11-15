@@ -17,6 +17,7 @@ class BroadcastAnnouncer {
   int? _serverPort;
   String? _protocol;
   String? _localIp;
+  String? _avatarBase64;
 
   bool get isRunning => _isRunning;
 
@@ -25,6 +26,7 @@ class BroadcastAnnouncer {
     required String deviceName,
     required int serverPort,
     String protocol = 'https',
+    String? avatar,
   }) async {
     if (_isRunning) return;
 
@@ -32,6 +34,27 @@ class BroadcastAnnouncer {
     _deviceName = deviceName;
     _serverPort = serverPort;
     _protocol = protocol;
+
+    if (avatar != null && avatar.isNotEmpty) {
+      try {
+        final file = File(avatar.replaceFirst('file://', ''));
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          _avatarBase64 = base64Encode(bytes);
+          print(
+            '[Broadcast] Avatar loaded: ${bytes.length} bytes → ${_avatarBase64!.length} base64 chars',
+          );
+        } else {
+          print('[Broadcast] ⚠️ Avatar file not found: $avatar');
+          _avatarBase64 = null;
+        }
+      } catch (e) {
+        print('[Broadcast] Failed to load avatar: $e');
+        _avatarBase64 = null;
+      }
+    } else {
+      _avatarBase64 = null;
+    }
 
     try {
       print('[Broadcast] Starting announcer...');
@@ -89,6 +112,7 @@ class BroadcastAnnouncer {
         'host': _localIp,
         'port': _serverPort,
         'protocol': _protocol,
+        //'avatar': _avatarBase64,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
 
