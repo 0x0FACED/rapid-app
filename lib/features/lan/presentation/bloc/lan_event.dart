@@ -48,7 +48,7 @@ class LanSendText extends LanEvent {
 
 /// Обновление списка устройств (из DeviceDiscovery stream)
 class LanDevicesUpdated extends LanEvent {
-  final List<Device>? devices;
+  final List<Device> devices; // УБРАЛИ nullable (?)
 
   const LanDevicesUpdated(this.devices);
 

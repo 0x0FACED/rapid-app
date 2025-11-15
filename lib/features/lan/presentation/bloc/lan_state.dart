@@ -1,14 +1,10 @@
-import 'package:equatable/equatable.dart';
 import 'package:rapid/features/lan/data/models/transfer_progress_model.dart';
 import '../../../settings/domain/entities/user_settings.dart';
 import '../../domain/entities/device.dart';
 import '../../domain/entities/shared_file.dart';
 
-abstract class LanState extends Equatable {
+abstract class LanState {
   const LanState();
-
-  @override
-  List<Object?> get props => [];
 }
 
 class LanInitial extends LanState {}
@@ -23,6 +19,7 @@ class LanLoaded extends LanState {
   final Device? selectedDevice; // Выбранное устройство для просмотра
   final List<SharedFile>? receivedFiles; // Файлы от выбранного устройства
   final List<TransferProgressModel> activeTransfers; // НОВОЕ
+  final int _updateCounter;
 
   const LanLoaded({
     required this.userSettings,
@@ -32,7 +29,8 @@ class LanLoaded extends LanState {
     this.selectedDevice,
     this.receivedFiles,
     this.activeTransfers = const [], // НОВОЕ
-  });
+    int updateCounter = 0,
+  }) : _updateCounter = updateCounter;
 
   LanLoaded copyWith({
     UserSettings? userSettings,
@@ -42,6 +40,7 @@ class LanLoaded extends LanState {
     Device? selectedDevice,
     List<SharedFile>? receivedFiles,
     List<TransferProgressModel>? activeTransfers,
+    bool forceUpdate = false,
   }) {
     return LanLoaded(
       userSettings: userSettings ?? this.userSettings,
@@ -51,6 +50,7 @@ class LanLoaded extends LanState {
       selectedDevice: selectedDevice ?? this.selectedDevice,
       receivedFiles: receivedFiles ?? this.receivedFiles,
       activeTransfers: activeTransfers ?? this.activeTransfers,
+      updateCounter: forceUpdate ? _updateCounter + 1 : _updateCounter,
     );
   }
 

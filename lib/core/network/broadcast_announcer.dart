@@ -1,0 +1,135 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:injectable/injectable.dart';
+import 'package:network_info_plus/network_info_plus.dart';
+
+@lazySingleton
+class BroadcastAnnouncer {
+  RawDatagramSocket? _socket;
+  bool _isRunning = false;
+  Timer? _announceTimer;
+
+  static const int _broadcastPort = 53318; // Порт для broadcast
+
+  String? _deviceId;
+  String? _deviceName;
+  int? _serverPort;
+  String? _protocol;
+  String? _localIp;
+
+  bool get isRunning => _isRunning;
+
+  Future<void> start({
+    required String deviceId,
+    required String deviceName,
+    required int serverPort,
+    String protocol = 'https',
+  }) async {
+    if (_isRunning) return;
+
+    _deviceId = deviceId;
+    _deviceName = deviceName;
+    _serverPort = serverPort;
+    _protocol = protocol;
+
+    try {
+      print('[Broadcast] Starting announcer...');
+
+      _localIp = await _getLocalIp();
+      if (_localIp == null) {
+        throw Exception('Cannot get local IP');
+      }
+
+      print('[Broadcast] Local IP: $_localIp');
+
+      // Создаём UDP socket
+      _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      _socket!.broadcastEnabled = true;
+
+      // Отправляем announce каждую секунду
+      _announceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        _sendAnnouncement();
+      });
+
+      // Первый announce сразу
+      _sendAnnouncement();
+
+      _isRunning = true;
+      print('[Broadcast] ✓ Announcer started');
+    } catch (e) {
+      print('[Broadcast] Failed to start: $e');
+    }
+  }
+
+  void _sendAnnouncement() {
+    if (_socket == null) return;
+
+    try {
+      final message = jsonEncode({
+        'type': 'rapid_announce',
+        'id': _deviceId,
+        'name': _deviceName,
+        'host': _localIp,
+        'port': _serverPort,
+        'protocol': _protocol,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      final data = utf8.encode(message);
+      final broadcast = InternetAddress('255.255.255.255');
+
+      _socket!.send(data, broadcast, _broadcastPort);
+      // print('[Broadcast] → Sent announcement');
+    } catch (e) {
+      print('[Broadcast] Send error: $e');
+    }
+  }
+
+  Future<String?> _getLocalIp() async {
+    try {
+      final info = NetworkInfo();
+      final wifiIP = await info.getWifiIP();
+
+      if (wifiIP != null && wifiIP.isNotEmpty && !wifiIP.contains('::')) {
+        return wifiIP;
+      }
+
+      // Fallback через NetworkInterface
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          if (!addr.isLoopback &&
+              (addr.address.startsWith('192.168.') ||
+                  addr.address.startsWith('10.') ||
+                  addr.address.startsWith('172.'))) {
+            return addr.address;
+          }
+        }
+      }
+
+      return null;
+    } catch (e) {
+      print('[Broadcast] Get IP error: $e');
+      return null;
+    }
+  }
+
+  Future<void> stop() async {
+    if (!_isRunning) return;
+
+    _announceTimer?.cancel();
+    _socket?.close();
+
+    _isRunning = false;
+    print('[Broadcast] Stopped');
+  }
+
+  void dispose() {
+    stop();
+  }
+}

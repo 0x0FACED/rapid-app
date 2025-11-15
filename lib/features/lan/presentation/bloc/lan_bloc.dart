@@ -176,10 +176,30 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   }
 
   void _onDevicesUpdated(LanDevicesUpdated event, Emitter<LanState> emit) {
-    if (state is! LanLoaded) return;
+    if (state is! LanLoaded) {
+      print('[LanBloc] ⚠️ State is not LanLoaded, ignoring');
+      return;
+    }
 
     final currentState = state as LanLoaded;
-    emit(currentState.copyWith(availableDevices: event.devices));
+
+    print('[LanBloc] ========================================');
+    print('[LanBloc] Devices updated:');
+    print('[LanBloc]   Old: ${currentState.availableDevices.length}');
+    print('[LanBloc]   New: ${event.devices.length}');
+
+    for (final device in event.devices) {
+      print('[LanBloc]   - ${device.name} (${device.id})');
+    }
+
+    emit(
+      currentState.copyWith(
+        availableDevices: List.from(event.devices), // Новый список
+        forceUpdate: true, // НОВОЕ
+      ),
+    );
+    print('[LanBloc] ✓ State emitted');
+    print('[LanBloc] ========================================');
   }
 
   Future<void> _onSelectDevice(

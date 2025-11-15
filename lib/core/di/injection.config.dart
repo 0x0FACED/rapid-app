@@ -23,6 +23,8 @@ import '../mdns/device_discovery.dart' as _i450;
 import '../mdns/mdns_service.dart' as _i398;
 import '../mdns/service_announcer.dart' as _i100;
 import '../network/api_client.dart' as _i557;
+import '../network/broadcast_announcer.dart' as _i981;
+import '../network/broadcast_discovery.dart' as _i855;
 import '../network/certificate_manager.dart' as _i531;
 import '../network/http_server.dart' as _i756;
 import '../network/transfer_manager.dart' as _i810;
@@ -46,8 +48,12 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i573.SharedPrefsService>(
         () => _i573.SharedPrefsService());
     gh.lazySingleton<_i100.ServiceAnnouncer>(() => _i100.ServiceAnnouncer());
+    gh.lazySingleton<_i981.BroadcastAnnouncer>(
+        () => _i981.BroadcastAnnouncer());
     gh.lazySingleton<_i398.MDnsService>(
         () => _i398.MDnsService(gh<_i573.SharedPrefsService>()));
+    gh.lazySingleton<_i855.BroadcastDiscovery>(
+        () => _i855.BroadcastDiscovery(gh<_i573.SharedPrefsService>()));
     gh.factory<_i408.ReceiveFilesUseCase>(() => _i408.ReceiveFilesUseCase(
           gh<_i557.ApiClient>(),
           gh<_i810.TransferManager>(),
@@ -56,6 +62,8 @@ extension GetItInjectableX on _i174.GetIt {
         () => _i955.SettingsRepositoryImpl(gh<_i573.SharedPrefsService>()));
     gh.factory<_i585.SettingsBloc>(
         () => _i585.SettingsBloc(gh<_i674.SettingsRepository>()));
+    gh.lazySingleton<_i450.DeviceDiscovery>(
+        () => _i450.DeviceDiscovery(gh<_i855.BroadcastDiscovery>()));
     gh.lazySingleton<_i756.HttpServerService>(
         () => _i756.HttpServerService(gh<_i531.CertificateManager>()));
     gh.factory<_i855.SendFilesUseCase>(() => _i855.SendFilesUseCase(
@@ -63,8 +71,6 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i810.TransferManager>(),
           gh<_i573.SharedPrefsService>(),
         ));
-    gh.lazySingleton<_i450.DeviceDiscovery>(
-        () => _i450.DeviceDiscovery(gh<_i398.MDnsService>()));
     gh.factory<_i368.LanBloc>(() => _i368.LanBloc(
           gh<_i674.SettingsRepository>(),
           gh<_i450.DeviceDiscovery>(),

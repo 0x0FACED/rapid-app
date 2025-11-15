@@ -35,7 +35,7 @@ class MDnsService {
   void _startInBackground() async {
     try {
       // Acquire multicast lock (может быть медленным на Android)
-      await MulticastLock.acquire();
+      //await MulticastLock.acquire();
 
       // Создаём ОДИН клиент
       _client = MDnsClient();
