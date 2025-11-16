@@ -1,21 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:rapid/features/lan/domain/entities/device.dart';
-import 'package:rapid/features/lan/domain/entities/shared_file.dart';
-import 'package:rapid/features/lan/presentation/pages/chat_page.dart';
 import 'package:rapid/features/lan/presentation/widgets/lan_loaded.dart';
-import 'package:rapid/features/lan/presentation/widgets/transfer_strip.dart';
 import 'package:rapid/features/settings/presentation/bloc/settings_bloc.dart';
 import 'package:rapid/features/settings/presentation/bloc/settings_state.dart';
 import '../../../../core/di/injection.dart';
 import '../bloc/lan_bloc.dart';
 import '../bloc/lan_event.dart';
 import '../bloc/lan_state.dart';
-import '../widgets/user_profile_card.dart';
-import '../widgets/device_list.dart';
-import '../widgets/shared_files_list.dart';
-import '../widgets/text_share_input.dart';
-import '../widgets/transfer_progress_card.dart';
 
 class LANPage extends StatelessWidget {
   const LANPage({super.key});

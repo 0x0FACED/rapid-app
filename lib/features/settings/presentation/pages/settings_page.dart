@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:rapid/features/settings/presentation/pages/logs_page.dart';
 import '../../../../core/l10n/generated/app_localizations.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../bloc/settings_bloc.dart';
@@ -61,6 +63,7 @@ class _SettingsPageContent extends StatelessWidget {
                 // About Section
                 _SectionHeader(title: l10n.about),
                 _VersionTile(),
+                _LogsTile(),
               ],
             );
           }
@@ -479,4 +482,43 @@ class _VersionTile extends StatelessWidget {
       subtitle: Text(AppConstants.appVersion),
     );
   }
+}
+
+class _LogsTile extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.list_alt),
+      title: const Text('Logs'),
+      subtitle: const Text('Developer logs'),
+      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+      onTap: () {
+        Navigator.of(context).push(
+          sharedAxisRoute(
+            page: const LogsPage(),
+            type: SharedAxisTransitionType.vertical, // или scaled/horizontal
+          ),
+        );
+      },
+    );
+  }
+}
+
+PageRouteBuilder<T> sharedAxisRoute<T>({
+  required Widget page,
+  SharedAxisTransitionType type = SharedAxisTransitionType.scaled,
+}) {
+  return PageRouteBuilder<T>(
+    transitionDuration: const Duration(milliseconds: 330),
+    reverseTransitionDuration: const Duration(milliseconds: 300),
+    pageBuilder: (_, __, ___) => page,
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      return SharedAxisTransition(
+        animation: animation,
+        secondaryAnimation: secondaryAnimation,
+        transitionType: type,
+        child: child,
+      );
+    },
+  );
 }

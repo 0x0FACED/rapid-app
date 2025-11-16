@@ -303,27 +303,51 @@ class _DeviceFilesView extends StatelessWidget {
                     // НОВОЕ: Кнопки действий
                     Row(
                       children: [
-                        // Кнопка "Добавить в избранное"
                         Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              _addToFavorites(context, device);
+                          child: BlocSelector<LanBloc, LanState, bool>(
+                            selector: (state) {
+                              if (state is! LanLoaded) return false;
+                              return state.favoriteDevices.any(
+                                (d) => d.id == device.id,
+                              );
                             },
-                            icon: const Icon(Icons.star_rounded, size: 18),
-                            label: const Text('Favorite'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white.withOpacity(0.2),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 1,
+                            builder: (context, isFavorite) {
+                              return ElevatedButton.icon(
+                                onPressed: () {
+                                  context.read<LanBloc>().add(
+                                    LanToggleFavorite(device),
+                                  );
+                                },
+                                icon: Icon(
+                                  isFavorite
+                                      ? Icons.star_rounded
+                                      : Icons.star_border_rounded,
+                                  size: 18,
                                 ),
-                              ),
-                            ),
+                                label: Text(
+                                  isFavorite ? 'Unfavorite' : 'Favorite',
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white.withValues(
+                                    alpha: 0.2,
+                                  ),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -381,14 +405,15 @@ class _DeviceFilesView extends StatelessWidget {
   }
 
   void _addToFavorites(BuildContext context, Device device) {
-    // TODO: Реализовать логику добавления в избранное
+    context.read<LanBloc>().add(LanToggleFavorite(device));
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
             const Icon(Icons.star_rounded, color: Colors.white),
             const SizedBox(width: 12),
-            Expanded(child: Text('${device.name} added to favorites')),
+            Expanded(child: Text('${device.name} favorite status updated')),
           ],
         ),
         backgroundColor: Theme.of(context).colorScheme.tertiary,

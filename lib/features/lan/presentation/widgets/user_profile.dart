@@ -6,7 +6,7 @@ import 'package:rapid/features/lan/presentation/widgets/user_profile_card.dart';
 import 'package:rapid/features/settings/domain/entities/user_settings.dart';
 
 class UserProfileSection extends StatelessWidget {
-  const UserProfileSection();
+  const UserProfileSection({super.key});
 
   @override
   Widget build(BuildContext context) {

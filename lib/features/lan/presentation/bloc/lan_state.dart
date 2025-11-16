@@ -19,6 +19,7 @@ class LanLoaded extends LanState {
   final Device? selectedDevice;
   final List<SharedFile>? receivedFiles;
   final List<TransferProgressModel> activeTransfers;
+  final List<Device> favoriteDevices;
 
   const LanLoaded({
     required this.userSettings,
@@ -28,6 +29,7 @@ class LanLoaded extends LanState {
     this.selectedDevice,
     this.receivedFiles,
     this.activeTransfers = const [],
+    this.favoriteDevices = const [],
   });
 
   // ИСПРАВЛЕНО: Правильный copyWith с nullable
@@ -39,6 +41,7 @@ class LanLoaded extends LanState {
     Device? selectedDevice, // НЕПРАВИЛЬНО - не сбросит в null
     List<SharedFile>? receivedFiles,
     List<TransferProgressModel>? activeTransfers,
+    List<Device>? favoriteDevices,
     bool clearSelectedDevice = false, // НОВОЕ: explicit flag
     bool clearReceivedFiles = false, // НОВОЕ: explicit flag
   }) {
@@ -54,6 +57,7 @@ class LanLoaded extends LanState {
           ? null
           : (receivedFiles ?? this.receivedFiles),
       activeTransfers: activeTransfers ?? this.activeTransfers,
+      favoriteDevices: favoriteDevices ?? this.favoriteDevices,
     );
   }
 }

@@ -1,5 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:rapid/features/lan/presentation/bloc/lan_bloc.dart';
+import 'package:rapid/features/lan/presentation/pages/favorites_page.dart';
 import 'package:rapid/features/lan/presentation/pages/notification_page.dart';
 import '../../../settings/domain/entities/user_settings.dart';
 import '../../../../core/di/injection.dart';
@@ -102,52 +105,72 @@ class UserProfileCard extends StatelessWidget {
             ),
 
             // НОВОЕ: Кнопка уведомлений с badge
-            StreamBuilder<List>(
-              stream: notificationService.notificationsStream,
-              initialData: notificationService.notifications,
-              builder: (context, snapshot) {
-                final unreadCount = notificationService.unreadCount;
-
-                return Stack(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.notifications),
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const NotificationsPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    if (unreadCount > 0)
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: const BoxConstraints(
-                            minWidth: 16,
-                            minHeight: 16,
-                          ),
-                          child: Text(
-                            unreadCount > 9 ? '9+' : '$unreadCount',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
+            Row(
+              children: [
+                // Кнопка избранного
+                IconButton(
+                  icon: const Icon(Icons.star_rounded),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => BlocProvider.value(
+                          value: context.read<LanBloc>(),
+                          child: const FavoritesPage(),
                         ),
                       ),
-                  ],
-                );
-              },
+                    );
+                  },
+                  tooltip: 'Favorites',
+                ),
+                // Кнопка уведомлений с badge
+                StreamBuilder<List>(
+                  stream: notificationService.notificationsStream,
+                  initialData: notificationService.notifications,
+                  builder: (context, snapshot) {
+                    final unreadCount = notificationService.unreadCount;
+
+                    return Stack(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.notifications),
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const NotificationsPage(),
+                              ),
+                            );
+                          },
+                        ),
+                        if (unreadCount > 0)
+                          Positioned(
+                            right: 8,
+                            top: 8,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              constraints: const BoxConstraints(
+                                minWidth: 16,
+                                minHeight: 16,
+                              ),
+                              child: Text(
+                                unreadCount > 9 ? '9+' : '$unreadCount',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
             ),
           ],
         ),

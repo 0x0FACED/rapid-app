@@ -11,7 +11,7 @@ class AppConstants {
 
   // mDNS
   static const Duration discoveryInterval = Duration(seconds: 5);
-  static const Duration deviceTimeout = Duration(seconds: 30);
+  static const Duration deviceTimeout = Duration(seconds: 3);
 
   // App
   static const String appName = 'Rapid';

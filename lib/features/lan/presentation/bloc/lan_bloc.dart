@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:injectable/injectable.dart';
 import 'package:rapid/core/services/chat_service.dart';
 import 'package:rapid/core/services/notification_service.dart';
+import 'package:rapid/core/storage/shared_prefs_service.dart';
 import 'package:rapid/features/lan/domain/entities/device.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mime/mime.dart';
@@ -30,6 +32,10 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   final ApiClient _apiClient;
   final NotificationService _notificationService;
   final ChatService _chatService;
+  final SharedPrefsService _prefs;
+
+  final Map<String, Device> _favoriteDevices = {};
+  static const _favoritesKey = 'favorite_devices';
 
   StreamSubscription? _devicesSubscription;
   StreamSubscription? _incomingTextsSubscription;
@@ -45,6 +51,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     this._apiClient,
     this._notificationService,
     this._chatService,
+    this._prefs,
   ) : super(LanInitial()) {
     on<LanInitialize>(_onInitialize);
     on<LanToggleMode>(_onToggleMode);
@@ -58,6 +65,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     on<LanCancelTransfer>(_onCancelTransfer); // НОВОЕ
     on<LanRefreshSettings>(_onRefreshSettings);
     on<LanRefreshDeviceFiles>(_onRefreshDeviceFiles);
+    on<LanToggleFavorite>(_onToggleFavorite);
   }
 
   Future<void> _onInitialize(
@@ -97,6 +105,8 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         );
       });
 
+      await _loadFavorites();
+
       emit(
         LanLoaded(
           userSettings: settings,
@@ -104,6 +114,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
           sharedFiles: [],
           availableDevices: _deviceDiscovery.devices,
           activeTransfers: _transferManager.activeTransfers.toList(),
+          favoriteDevices: _favoriteDevices.values.toList(),
         ),
       );
     } catch (e) {
@@ -195,10 +206,11 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     }
 
     final currentState = state as LanLoaded;
+    final devices = event.devices;
 
     // Детальное сравнение
     bool hasChanges = false;
-    for (final newDevice in event.devices) {
+    for (final newDevice in devices) {
       final oldDevice = currentState.availableDevices
           .cast<Device?>()
           .firstWhere((d) => d?.id == newDevice.id, orElse: () => null);
@@ -219,8 +231,11 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     }
 
     if (hasChanges == true) {
+      _syncFavoritesWithDevices(devices);
+
       final newState = currentState.copyWith(
         availableDevices: List.from(event.devices), // Создаём НОВЫЙ список
+        favoriteDevices: _favoriteDevices.values.toList(),
       );
 
       print('[LanBloc] Emitting new state...');
@@ -309,6 +324,32 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       // Если устройство всё ещё выбрано — оставим его, но с пустым списком файлов
       if (latestState.selectedDevice?.id == device.id) {
         emit(latestState.copyWith(receivedFiles: []));
+      }
+    }
+  }
+
+  void _syncFavoritesWithDevices(List<Device> devices) {
+    // если устройство в избранных и есть в availableDevices — обновляем его snapshot
+    final byId = {for (final d in devices) d.id: d};
+
+    for (final id in _favoriteDevices.keys.toList()) {
+      final online = byId[id];
+      if (online != null) {
+        // обновляем name/host/port/protocol/isOnline/avatar
+        _favoriteDevices[id] = _favoriteDevices[id]!.copyWith(
+          name: online.name,
+          host: online.host,
+          port: online.port,
+          protocol: online.protocol,
+          isOnline: online.isOnline,
+          avatar: online.avatar,
+          lastSeen: online.lastSeen,
+        );
+      } else {
+        // устройства сейчас нет в availableDevices -> помечаем offline,
+        // но сохраняем последний host/port
+        final current = _favoriteDevices[id]!;
+        _favoriteDevices[id] = current.copyWith(isOnline: false);
       }
     }
   }
@@ -438,6 +479,14 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         text: event.text,
         fromDevice: ourDeviceId,
         fromDeviceName: ourDeviceName,
+      );
+
+      _chatService.addMessage(
+        deviceId: event.targetDeviceId, // id собеседника
+        text: event.text,
+        fromDeviceId: ourDeviceId, // наш реальный ID
+        fromDeviceName: ourDeviceName, // наше реальное имя
+        isSentByMe: true,
       );
 
       print('[LanBloc] ✓ Text sent to ${device.name}: ${event.text}');
@@ -635,6 +684,60 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       print('[LanBloc] ✓ Services restarted with new settings');
     } catch (e) {
       print('[LanBloc] ✗ Failed to refresh settings: $e');
+    }
+  }
+
+  Future<void> _onToggleFavorite(
+    LanToggleFavorite event,
+    Emitter<LanState> emit,
+  ) async {
+    if (state is! LanLoaded) return;
+    final currentState = state as LanLoaded;
+
+    final id = event.device.id;
+    if (_favoriteDevices.containsKey(id)) {
+      _favoriteDevices.remove(id); // <- unfavorite
+    } else {
+      _favoriteDevices[id] = event.device; // <- add favorite
+    }
+
+    await _saveFavorites();
+
+    emit(
+      currentState.copyWith(favoriteDevices: _favoriteDevices.values.toList()),
+    );
+  }
+
+  Future<void> _loadFavorites() async {
+    final json = _prefs.getString(_favoritesKey);
+    if (json == null || json.isEmpty) {
+      _favoriteDevices.clear();
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(json) as Map<String, dynamic>;
+      _favoriteDevices
+        ..clear()
+        ..addAll(
+          decoded.map((id, value) {
+            return MapEntry(id, Device.fromJson(value as Map<String, dynamic>));
+          }),
+        );
+    } catch (e) {
+      print('[LanBloc] Failed to parse favorites: $e');
+      _favoriteDevices.clear();
+    }
+  }
+
+  Future<void> _saveFavorites() async {
+    try {
+      final map = _favoriteDevices.map(
+        (id, device) => MapEntry(id, device.toJson()),
+      );
+      await _prefs.setString(_favoritesKey, jsonEncode(map));
+    } catch (e) {
+      print('[LanBloc] Failed to save favorites: $e');
     }
   }
 

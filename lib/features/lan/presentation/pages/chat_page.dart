@@ -29,15 +29,19 @@ class _ChatPageState extends State<ChatPage> {
   bool _isDeviceOnline = true; // НОВОЕ: статус устройства
   StreamSubscription? _devicesSubscription; // НОВОЕ
 
+  late final List<ChatMessage> _initialMessages;
+
   @override
   void initState() {
     super.initState();
     _startMonitoringDevice();
+    _initialMessages = _chatService.getMessages(widget.device.id);
   }
 
   @override
   void dispose() {
     _textController.dispose();
+    _devicesSubscription?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -48,7 +52,6 @@ class _ChatPageState extends State<ChatPage> {
       final discovery = getIt<DeviceDiscovery>();
       _devicesSubscription = discovery.devicesStream.listen((devices) {
         final isOnline = devices.any((d) => d.id == widget.device.id);
-
         if (_isDeviceOnline != isOnline) {
           setState(() {
             _isDeviceOnline = isOnline;
@@ -108,13 +111,8 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(
             child: StreamBuilder<Map<String, List<ChatMessage>>>(
               stream: _chatService.messagesStream,
-              initialData: {
-                widget.device.id: _chatService.getMessages(widget.device.id),
-              },
               builder: (context, snapshot) {
-                final messages = snapshot.data?[widget.device.id] ?? [];
-
-                if (messages.isEmpty) {
+                if (_initialMessages.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -148,9 +146,9 @@ class _ChatPageState extends State<ChatPage> {
                 return ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.all(16),
-                  itemCount: messages.length,
+                  itemCount: _initialMessages.length,
                   itemBuilder: (context, index) {
-                    final message = messages[index];
+                    final message = _initialMessages[index];
                     return _MessageBubble(message: message);
                   },
                 );
@@ -220,22 +218,13 @@ class _ChatPageState extends State<ChatPage> {
     final text = _textController.text.trim();
     if (text.isEmpty) return;
 
-    // Отправляем через BLoC
     context.read<LanBloc>().add(LanSendText(text, widget.device.id));
-
-    // Добавляем в локальную историю
-    _chatService.addMessage(
-      deviceId: widget.device.id,
-      text: text,
-      fromDeviceId: 'me', // TODO: использовать реальный ID
-      fromDeviceName: 'You',
-      isSentByMe: true,
-    );
 
     _textController.clear();
 
-    // Скроллим вниз
+    // Скроллим вниз после того, как сообщение появится в списке
     Future.delayed(const Duration(milliseconds: 100), () {
+      if (!_scrollController.hasClients) return;
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 300),
@@ -285,17 +274,6 @@ class _MessageBubble extends StatelessWidget {
             : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!isMe) ...[
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              child: Text(
-                message.fromDeviceName[0].toUpperCase(),
-                style: const TextStyle(fontSize: 12, color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
           Flexible(
             // ИСПРАВЛЕНО: GestureDetector с tap и secondaryTap
             child: GestureDetector(
@@ -345,11 +323,11 @@ class _MessageBubble extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      timeago.format(message.timestamp),
+                      message.formattedTime,
                       style: TextStyle(
                         fontSize: 10,
                         color: isMe
-                            ? Colors.white.withOpacity(0.7)
+                            ? Colors.white.withValues(alpha: 0.7)
                             : Theme.of(context).colorScheme.outline,
                       ),
                     ),

@@ -5,7 +5,7 @@ import 'package:rapid/features/lan/presentation/bloc/lan_event.dart';
 import 'package:rapid/features/lan/presentation/bloc/lan_state.dart';
 
 class ModeToggleSection extends StatelessWidget {
-  const ModeToggleSection();
+  const ModeToggleSection({super.key});
 
   @override
   Widget build(BuildContext context) {

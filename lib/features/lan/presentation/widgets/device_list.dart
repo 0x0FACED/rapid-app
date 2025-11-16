@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -8,8 +7,19 @@ import '../bloc/lan_event.dart';
 
 class DeviceList extends StatelessWidget {
   final List<Device> devices;
+  final void Function(Device)? onDeviceTap;
+  final bool showFavoriteIcon;
+  final bool Function(Device)? isFavorite;
+  final void Function(Device)? onFavoriteTap;
 
-  const DeviceList({super.key, required this.devices});
+  const DeviceList({
+    super.key,
+    required this.devices,
+    this.onDeviceTap,
+    this.showFavoriteIcon = false,
+    this.isFavorite,
+    this.onFavoriteTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +59,14 @@ class DeviceList extends StatelessWidget {
       itemCount: devices.length,
       itemBuilder: (context, index) {
         final device = devices[index];
-        return _DeviceCard(device: device, key: ValueKey(device.id));
+        return _DeviceCard(
+          key: ValueKey(device.id),
+          device: device,
+          onTap: onDeviceTap,
+          showFavoriteIcon: showFavoriteIcon,
+          isFavorite: isFavorite,
+          onFavoriteTap: onFavoriteTap,
+        );
       },
     );
   }
@@ -57,11 +74,24 @@ class DeviceList extends StatelessWidget {
 
 class _DeviceCard extends StatelessWidget {
   final Device device;
+  final void Function(Device)? onTap;
+  final bool showFavoriteIcon;
+  final bool Function(Device)? isFavorite;
+  final void Function(Device)? onFavoriteTap;
 
-  const _DeviceCard({super.key, required this.device});
+  const _DeviceCard({
+    super.key,
+    required this.device,
+    this.onTap,
+    this.showFavoriteIcon = false,
+    this.isFavorite,
+    this.onFavoriteTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final favorite = isFavorite?.call(device) ?? false;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 3,
@@ -69,18 +99,18 @@ class _DeviceCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () {
-          context.read<LanBloc>().add(LanSelectDevice(device.id));
+          if (onTap != null) {
+            onTap!(device);
+          } else {
+            context.read<LanBloc>().add(LanSelectDevice(device.id));
+          }
         },
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // ИСПРАВЛЕНО: Показываем аватарку или fallback
               _buildAvatar(context),
-
               const SizedBox(width: 16),
-
-              // Информация об устройстве
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,7 +129,7 @@ class _DeviceCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(
                           context,
-                        ).colorScheme.onSurface.withOpacity(0.6),
+                        ).colorScheme.onSurface.withValues(alpha: 0.6),
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -149,8 +179,21 @@ class _DeviceCard extends StatelessWidget {
                   ],
                 ),
               ),
-
-              const Icon(Icons.arrow_forward_ios, size: 16),
+              const SizedBox(width: 8),
+              if (showFavoriteIcon)
+                IconButton(
+                  icon: Icon(
+                    favorite ? Icons.star_rounded : Icons.star_border_rounded,
+                    color: favorite
+                        ? Colors.amber
+                        : Theme.of(context).iconTheme.color,
+                  ),
+                  onPressed: () {
+                    onFavoriteTap?.call(device);
+                  },
+                )
+              else
+                const Icon(Icons.arrow_forward_ios, size: 16),
             ],
           ),
         ),

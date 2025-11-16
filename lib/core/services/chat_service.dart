@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:injectable/injectable.dart';
+import 'package:timeago/timeago.dart' as timeago;
 import 'package:uuid/uuid.dart';
 import '../../features/lan/domain/entities/chat_message.dart';
 import '../storage/shared_prefs_service.dart';
@@ -29,6 +30,8 @@ class ChatService {
       final json = _prefs.getString(_chatHistoryKey);
       if (json == null || json.isEmpty) {
         print('[ChatService] No saved history');
+        _messagesController.add(Map.from(_chats));
+
         return;
       }
 
@@ -41,6 +44,8 @@ class ChatService {
 
         _chats[deviceId] = messages;
       });
+
+      _messagesController.add(Map.from(_chats));
 
       print('[ChatService] Loaded history for ${_chats.length} devices');
     } catch (e) {
@@ -77,13 +82,16 @@ class ChatService {
     required String fromDeviceName,
     required bool isSentByMe,
   }) {
+    final now = DateTime.now();
+
     final message = ChatMessage(
       id: const Uuid().v4(),
       text: text,
       fromDeviceId: fromDeviceId,
       fromDeviceName: fromDeviceName,
-      timestamp: DateTime.now(),
+      timestamp: now,
       isSentByMe: isSentByMe,
+      formattedTime: timeago.format(now),
     );
 
     if (!_chats.containsKey(deviceId)) {

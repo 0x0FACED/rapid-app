@@ -93,6 +93,7 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i557.ApiClient>(),
           gh<_i941.NotificationService>(),
           gh<_i698.ChatService>(),
+          gh<_i573.SharedPrefsService>(),
         ));
     return this;
   }

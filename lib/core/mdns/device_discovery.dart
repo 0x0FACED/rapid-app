@@ -24,6 +24,7 @@ class DeviceDiscovery {
   Stream<List<Device>> get devicesStream => _devicesController.stream;
 
   List<Device> get devices => List.unmodifiable(_devices);
+  final Map<String, bool> _pingInProgress = {};
 
   static const _pingInterval = Duration(
     milliseconds: 1000,
@@ -93,17 +94,24 @@ class DeviceDiscovery {
     }
   }
 
-  // НОВОЕ: Запуск периодических HTTP запросов к устройству
   void _startPolling(Device device) {
-    // Сбрасываем счётчик ошибок
     _failedPingCounts[device.id] = 0;
-
-    // Отменяем старый таймер если есть
     _pingTimers[device.id]?.cancel();
 
-    // Создаём новый таймер
+    _pingInProgress[device.id] = false;
+
     _pingTimers[device.id] = Timer.periodic(_pingInterval, (_) async {
-      await _pingDevice(device);
+      if (_pingInProgress[device.id] == true) {
+        // Предыдущий ping ещё не завершился — не плодим параллельные запросы
+        return;
+      }
+
+      _pingInProgress[device.id] = true;
+      try {
+        await _pingDevice(device);
+      } finally {
+        _pingInProgress[device.id] = false;
+      }
     });
 
     print('[Discovery] Started polling ${device.name}');
@@ -114,52 +122,56 @@ class DeviceDiscovery {
     try {
       final deviceInfo = await _apiClient.getDeviceInfo(device.baseUrl);
       if (deviceInfo == null) {
-        _failedPingCounts[device.id] = (_failedPingCounts[device.id] ?? 0) + 1;
-        final failedCount = _failedPingCounts[device.id]!;
-        if (failedCount >= _maxFailedPings) {
-          // только тогда удаляй девайс
-          _removeDevice(device.id);
-        }
+        _handlePingFailure(device.id, device.name);
         return;
       }
 
-      // Успешный ping - обновляем информацию
       _failedPingCounts[device.id] = 0;
 
-      final updatedDevice = Device(
-        id: device.id,
+      final index = _devices.indexWhere((d) => d.id == device.id);
+      if (index < 0) return;
+
+      final current = _devices[index];
+
+      final updated = current.copyWith(
+        // если у тебя есть copyWith
         name: deviceInfo.alias,
-        host: device.host,
         port: deviceInfo.port,
         protocol: deviceInfo.protocol,
-        isOnline: true,
-        lastSeen: DateTime.now(),
         avatar: deviceInfo.avatar,
+        isOnline: true,
       );
 
-      // Обновляем в списке
-      final index = _devices.indexWhere((d) => d.id == device.id);
-      if (index >= 0) {
-        _devices[index] = updatedDevice;
+      // Проверяем, что что-то реально изменилось, кроме lastSeen
+      final hasChanges =
+          current.name != updated.name ||
+          current.port != updated.port ||
+          current.protocol != updated.protocol ||
+          current.avatar != updated.avatar ||
+          current.isOnline != updated.isOnline;
+
+      if (hasChanges) {
+        _devices[index] = updated;
         _devicesController.add(List.from(_devices));
       }
     } catch (e) {
-      // Failed ping
-      _failedPingCounts[device.id] = (_failedPingCounts[device.id] ?? 0) + 1;
+      _handlePingFailure(device.id, device.name);
+    }
+  }
 
-      final failedCount = _failedPingCounts[device.id]!;
+  void _handlePingFailure(String deviceId, String deviceName) {
+    _failedPingCounts[deviceId] = (_failedPingCounts[deviceId] ?? 0) + 1;
+    final failedCount = _failedPingCounts[deviceId]!;
 
-      if (failedCount >= _maxFailedPings) {
-        // Устройство офлайн - удаляем
-        print(
-          '[Discovery] ⚠️ ${device.name} timeout after $failedCount failed pings',
-        );
-        _removeDevice(device.id);
-      } else {
-        print(
-          '[Discovery] Ping failed for ${device.name}: $failedCount/$_maxFailedPings',
-        );
-      }
+    if (failedCount >= _maxFailedPings) {
+      print(
+        '[Discovery] ⚠️ $deviceName timeout after $failedCount failed pings',
+      );
+      _removeDevice(deviceId);
+    } else {
+      print(
+        '[Discovery] Ping failed for $deviceName: $failedCount/$_maxFailedPings',
+      );
     }
   }
 
@@ -169,6 +181,7 @@ class DeviceDiscovery {
     _pingTimers[deviceId]?.cancel();
     _pingTimers.remove(deviceId);
     _failedPingCounts.remove(deviceId);
+    _pingInProgress.remove(deviceId);
 
     // Удаляем из списка
     final device = _devices.firstWhere((d) => d.id == deviceId);

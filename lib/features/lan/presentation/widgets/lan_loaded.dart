@@ -12,7 +12,7 @@ import 'package:rapid/features/lan/presentation/widgets/user_profile.dart';
 class LanLoadedScaffold extends StatelessWidget {
   final LanLoaded state;
 
-  const LanLoadedScaffold({required this.state});
+  const LanLoadedScaffold({super.key, required this.state});
 
   @override
   Widget build(BuildContext context) {

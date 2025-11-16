@@ -119,3 +119,13 @@ class LanRefreshDeviceFiles extends LanEvent {
   @override
   List<Object?> get props => [deviceId];
 }
+
+/// Добавить/убрать устройство из избранного
+class LanToggleFavorite extends LanEvent {
+  final Device device;
+
+  const LanToggleFavorite(this.device);
+
+  @override
+  List<Object?> get props => [device];
+}

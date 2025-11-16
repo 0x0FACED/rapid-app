@@ -12,6 +12,7 @@ class SharedPrefsService {
   static const String _keyLanguage = 'language'; // 'en' | 'ru'
   static const String _keyUseHttps = 'use_https';
   static const String _keyServerPort = 'server_port';
+  static const String _keyFavoriteDevices = 'favorite_devices';
 
   SharedPreferences? _prefs;
 
