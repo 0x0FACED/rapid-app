@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
 import '../storage/shared_prefs_service.dart';
+
+final _log = Logger('Broadcast Discovery');
 
 @lazySingleton
 class BroadcastDiscovery {
@@ -32,7 +35,7 @@ class BroadcastDiscovery {
     if (_isRunning) return;
 
     try {
-      print('[Discovery] Starting broadcast listener...');
+      _log.info('Starting broadcast listener...');
 
       _socket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
@@ -58,9 +61,9 @@ class BroadcastDiscovery {
       });
 
       _isRunning = true;
-      print('[Discovery] ✓ Listening on port $_broadcastPort');
+      _log.info('Listening on port $_broadcastPort');
     } catch (e) {
-      print('[Discovery] Failed to start: $e');
+      _log.severe('Failed to start', e);
     }
   }
 
@@ -92,9 +95,7 @@ class BroadcastDiscovery {
 
       if (wasNew) {
         _devicesController.add(device);
-        print(
-          '[Discovery] ✅ NEW: ${device.name} at ${device.host}:${device.port}',
-        );
+        _log.info('NEW: ${device.name} at ${device.host}:${device.port}');
       }
     } catch (e) {
       // Ignore invalid packets
@@ -119,7 +120,7 @@ class BroadcastDiscovery {
       // НОВОЕ: Отправляем событие удаления
       _deviceRemovedController.add(deviceId);
 
-      print('[Discovery] ⏱ Timeout: ${device?.name ?? deviceId}');
+      _log.info('Timeout: ${device?.name ?? deviceId}');
     }
   }
 
@@ -133,7 +134,7 @@ class BroadcastDiscovery {
     _lastSeen.clear();
     _isRunning = false;
 
-    print('[Discovery] Stopped');
+    _log.info('Stopped');
   }
 
   void dispose() {

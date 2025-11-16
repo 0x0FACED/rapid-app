@@ -1,8 +1,11 @@
 import 'dart:io';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+
+final _log = Logger('Certificate Manager');
 
 @lazySingleton
 class CertificateManager {
@@ -29,10 +32,10 @@ class CertificateManager {
     final keyFile = File(_privateKeyPath!);
 
     if (!await certFile.exists() || !await keyFile.exists()) {
-      print('[Certificate] Generating new self-signed certificate...');
+      _log.info('Generating new self-signed certificate...');
       await _generateCertificate();
     } else {
-      print('[Certificate] Using existing certificate');
+      _log.info('Using existing certificate');
     }
 
     // Создаем SecurityContext для HTTPS сервера
@@ -40,7 +43,7 @@ class CertificateManager {
       ..useCertificateChain(_certificatePath!)
       ..usePrivateKey(_privateKeyPath!);
 
-    print('[Certificate] Initialized');
+    _log.info('Initialized');
   }
 
   /// Генерация нового self-signed сертификата
@@ -75,9 +78,9 @@ class CertificateManager {
         _privateKeyPath!,
       ).writeAsString(CryptoUtils.encodeRSAPrivateKeyToPem(privateKey));
 
-      print('[Certificate] Generated and saved successfully');
+      _log.info('Generated and saved successfully');
     } catch (e) {
-      print('[Certificate] Generation failed: $e');
+      _log.severe('Generation failed', e);
       rethrow;
     }
   }
@@ -89,11 +92,11 @@ class CertificateManager {
     }
 
     final certPem = await File(_certificatePath!).readAsString();
-    final cert = X509Utils.x509CertificateFromPem(certPem);
+    // final cert = X509Utils.x509CertificateFromPem(certPem);
 
     // Вычисляем SHA-256 хеш от DER-encoded сертификата
     final certDer = CryptoUtils.getBytesFromPEMString(certPem);
-    final hash = CryptoUtils.getSha256ThumbprintFromBytes(certDer);
+    final hash = CryptoUtils.getHash(certDer);
 
     return hash;
   }

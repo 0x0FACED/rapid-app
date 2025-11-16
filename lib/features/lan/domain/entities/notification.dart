@@ -1,6 +1,11 @@
 import 'package:equatable/equatable.dart';
 
-enum NotificationType { textReceived, fileDownloaded, fileDownloadFailed }
+enum NotificationType {
+  textReceived,
+  fileDownloaded,
+  fileDownloadFailed,
+  fileShared, // НОВОЕ: наш файл кто-то качает
+}
 
 class AppNotification extends Equatable {
   final String id;

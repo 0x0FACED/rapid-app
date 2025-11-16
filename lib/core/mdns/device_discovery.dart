@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
 import '../network/broadcast_discovery.dart';
 import '../network/broadcast_announcer.dart';
 import '../network/api_client.dart';
 import '../storage/shared_prefs_service.dart';
 import '../../features/lan/domain/entities/device.dart';
+
+final _log = Logger('Device Discovery');
 
 @lazySingleton
 class DeviceDiscovery {
@@ -39,7 +42,7 @@ class DeviceDiscovery {
   );
 
   Future<void> start() async {
-    print('[Discovery] Starting...');
+    _log.info('[Discovery] Starting...');
 
     // Запускаем announcer
     await _broadcastAnnouncer.start(
@@ -61,7 +64,7 @@ class DeviceDiscovery {
 
     // Подписка на удалённые устройства НЕ НУЖНА - убираем сами через ping timeout
 
-    print('[Discovery] Started');
+    _log.info('[Discovery] Started');
   }
 
   void _onDeviceDiscovered(DiscoveredDevice discoveredDevice) {
@@ -85,7 +88,7 @@ class DeviceDiscovery {
       _devices.add(device);
       _devicesController.add(List.from(_devices));
 
-      print(
+      _log.info(
         '[Discovery] ✅ New device: ${device.name} (${device.host}:${device.port})',
       );
 
@@ -114,7 +117,7 @@ class DeviceDiscovery {
       }
     });
 
-    print('[Discovery] Started polling ${device.name}');
+    _log.info('[Discovery] Started polling ${device.name}');
   }
 
   // НОВОЕ: Ping устройства через HTTP
@@ -164,12 +167,12 @@ class DeviceDiscovery {
     final failedCount = _failedPingCounts[deviceId]!;
 
     if (failedCount >= _maxFailedPings) {
-      print(
+      _log.warning(
         '[Discovery] ⚠️ $deviceName timeout after $failedCount failed pings',
       );
       _removeDevice(deviceId);
     } else {
-      print(
+      _log.severe(
         '[Discovery] Ping failed for $deviceName: $failedCount/$_maxFailedPings',
       );
     }
@@ -188,7 +191,7 @@ class DeviceDiscovery {
     _devices.removeWhere((d) => d.id == deviceId);
     _devicesController.add(List.from(_devices));
 
-    print('[Discovery] ✅ Device removed: ${device.name}');
+    _log.info('[Discovery] ✅ Device removed: ${device.name}');
   }
 
   Future<void> stop() async {
@@ -205,7 +208,7 @@ class DeviceDiscovery {
     await _broadcastAnnouncer.stop();
 
     _devices.clear();
-    print('[Discovery] Stopped');
+    _log.info('[Discovery] Stopped');
   }
 
   void dispose() {

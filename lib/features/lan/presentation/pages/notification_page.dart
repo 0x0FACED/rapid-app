@@ -4,6 +4,7 @@ import '../../../../core/di/injection.dart';
 import '../../../../core/services/notification_service.dart';
 import '../../domain/entities/notification.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:open_filex/open_filex.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
@@ -71,26 +72,49 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  void _handleNotificationTap(AppNotification notification) {
+  Future<void> _handleNotificationTap(AppNotification notification) async {
     // Отмечаем как прочитанное
     _notificationService.markAsRead(notification.id);
 
-    // Действия в зависимости от типа
     switch (notification.type) {
       case NotificationType.textReceived:
         _showTextDialog(notification);
         break;
+
       case NotificationType.fileDownloaded:
-        // TODO: Открыть файл
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('File: ${notification.metadata?['fileName']}'),
-          ),
-        );
+        await _openDownloadedFile(notification);
         break;
+
       case NotificationType.fileDownloadFailed:
         _showErrorDialog(notification);
         break;
+
+      case NotificationType.fileShared:
+        // Пока просто покажем инфу; потом можно сделать переход на файл
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(notification.message)));
+        break;
+    }
+  }
+
+  Future<void> _openDownloadedFile(AppNotification notification) async {
+    final filePath = notification.metadata?['filePath'] as String?;
+    final fileName = notification.metadata?['fileName'] as String? ?? 'file';
+
+    if (filePath == null || filePath.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('File path is missing for $fileName')),
+      );
+      return;
+    }
+
+    final result = await OpenFilex.open(filePath); // [web:368][web:370]
+
+    if (result.type != ResultType.done) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cannot open $fileName: ${result.message}')),
+      );
     }
   }
 
@@ -229,6 +253,10 @@ class _NotificationTile extends StatelessWidget {
       case NotificationType.fileDownloadFailed:
         icon = Icons.error;
         color = Colors.red;
+        break;
+      case NotificationType.fileShared:
+        icon = Icons.upload_file;
+        color = Colors.orange;
         break;
     }
 

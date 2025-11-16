@@ -20,7 +20,6 @@ import '../../features/settings/domain/repositories/settings_repository.dart'
     as _i674;
 import '../../features/settings/presentation/bloc/settings_bloc.dart' as _i585;
 import '../mdns/device_discovery.dart' as _i450;
-import '../mdns/mdns_service.dart' as _i398;
 import '../mdns/service_announcer.dart' as _i100;
 import '../network/api_client.dart' as _i557;
 import '../network/broadcast_announcer.dart' as _i981;
@@ -56,8 +55,6 @@ extension GetItInjectableX on _i174.GetIt {
         () => _i941.NotificationService());
     gh.lazySingleton<_i855.BroadcastDiscovery>(
         () => _i855.BroadcastDiscovery(gh<_i573.SharedPrefsService>()));
-    gh.lazySingleton<_i398.MDnsService>(
-        () => _i398.MDnsService(gh<_i573.SharedPrefsService>()));
     gh.lazySingleton<_i698.ChatService>(
         () => _i698.ChatService(gh<_i573.SharedPrefsService>()));
     gh.factory<_i408.ReceiveFilesUseCase>(() => _i408.ReceiveFilesUseCase(

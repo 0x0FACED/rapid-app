@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart' as dio;
@@ -10,6 +11,8 @@ import 'package:injectable/injectable.dart';
 import 'package:rapid/core/network/transfer_manager.dart';
 import '../../features/lan/data/models/device_info_model.dart';
 import '../../features/lan/data/models/send_request_model.dart';
+
+final _log = Logger('API Client');
 
 @lazySingleton
 class ApiClient {
@@ -37,7 +40,7 @@ class ApiClient {
       final response = await _dio.get('$baseUrl/api/rapid/v2/info');
 
       if (response.statusCode != 200) {
-        print('[API] Bad HTTP status: ${response.statusCode}');
+        _log.warning('Bad HTTP status: ${response.statusCode}');
         return null;
       }
 
@@ -53,14 +56,14 @@ class ApiClient {
             return DeviceInfoModel.fromJson(map);
           }
         } catch (e) {
-          print("[API] Failed to decode string JSON: $e");
+          _log.severe("Failed to decode string JSON", e);
         }
-        print("[API] Response not map, from string: ${response.data}");
+        _log.warning("Response not map, from string: ${response.data}");
       }
-      print('[API] Response data is not a Map: ${response.data.runtimeType}');
+      _log.warning('Response data is not a Map: ${response.data.runtimeType}');
       return null;
     } catch (e) {
-      print('[API] Get device info error: $e');
+      _log.severe('Get device info error', e);
       return null;
     }
   }
@@ -73,7 +76,7 @@ class ApiClient {
         data: deviceInfo.toJson(),
       );
     } catch (e) {
-      print('[API] Register error: $e');
+      _log.severe('Register error', e);
       rethrow;
     }
   }
@@ -89,7 +92,7 @@ class ApiClient {
       final sessionId = response.data['sessionId'] as String;
       return sessionId;
     } catch (e) {
-      print('[API] Send request error: $e');
+      _log.severe('Send request error', e);
       rethrow;
     }
   }
@@ -102,7 +105,7 @@ class ApiClient {
         data: {'sessionId': sessionId},
       );
     } catch (e) {
-      print('[API] Confirm send error: $e');
+      _log.severe('Confirm send error', e);
       rethrow;
     }
   }
@@ -115,7 +118,7 @@ class ApiClient {
         data: {'sessionId': sessionId},
       );
     } catch (e) {
-      print('[API] Cancel error: $e');
+      _log.severe('Cancel error', e);
       rethrow;
     }
   }
@@ -144,7 +147,7 @@ class ApiClient {
         'file': await MultipartFile.fromFile(filePath, filename: fileName),
       });
 
-      print('[API] Uploading $fileName ($fileSize bytes) to $baseUrl');
+      _log.info('Uploading $fileName ($fileSize bytes) to $baseUrl');
 
       await _dio.post(
         '$baseUrl/api/rapid/v2/upload',
@@ -153,9 +156,9 @@ class ApiClient {
         cancelToken: _convertCancelToken(cancelToken),
       );
 
-      print('[API] Upload completed: $fileName');
+      _log.info('Upload completed: $fileName');
     } catch (e) {
-      print('[API] Upload error: $e');
+      _log.severe('Upload error', e);
       rethrow;
     }
   }
@@ -178,7 +181,7 @@ class ApiClient {
       // Создаём директорию
       await Directory(path.dirname(savePath)).create(recursive: true);
 
-      print('[API] Downloading $fileName from $baseUrl');
+      _log.info('Downloading $fileName from $baseUrl');
 
       await _dio.download(
         '$baseUrl/api/rapid/v2/download/$fileId',
@@ -187,11 +190,11 @@ class ApiClient {
         cancelToken: _convertCancelToken(cancelToken),
       );
 
-      print('[API] Download completed: $savePath');
+      _log.info('Download completed: $savePath');
 
       return savePath;
     } catch (e) {
-      print('[API] Download error: $e');
+      _log.severe('Download error', e);
       rethrow;
     }
   }
@@ -205,7 +208,7 @@ class ApiClient {
 
       return filesList.cast<Map<String, dynamic>>();
     } catch (e) {
-      print('[API] Get files error: $e');
+      _log.severe('Get files error', e);
       rethrow;
     }
   }
@@ -227,9 +230,9 @@ class ApiClient {
         },
       );
 
-      print('[API] Text sent successfully');
+      _log.info('Text sent successfully');
     } catch (e) {
-      print('[API] Send text error: $e');
+      _log.severe('Send text error', e);
       rethrow;
     }
   }

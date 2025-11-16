@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+
+final _log = Logger('Broadcast Announcer');
 
 @lazySingleton
 class BroadcastAnnouncer {
@@ -41,15 +44,15 @@ class BroadcastAnnouncer {
         if (await file.exists()) {
           final bytes = await file.readAsBytes();
           _avatarBase64 = base64Encode(bytes);
-          print(
-            '[Broadcast] Avatar loaded: ${bytes.length} bytes → ${_avatarBase64!.length} base64 chars',
+          _log.fine(
+            'Avatar loaded: ${bytes.length} bytes → ${_avatarBase64!.length} base64 chars',
           );
         } else {
-          print('[Broadcast] ⚠️ Avatar file not found: $avatar');
+          _log.warning('⚠️ Avatar file not found: $avatar');
           _avatarBase64 = null;
         }
       } catch (e) {
-        print('[Broadcast] Failed to load avatar: $e');
+        _log.severe('Failed to load avatar', e);
         _avatarBase64 = null;
       }
     } else {
@@ -57,14 +60,14 @@ class BroadcastAnnouncer {
     }
 
     try {
-      print('[Broadcast] Starting announcer...');
+      _log.info('Starting announcer...');
 
       _localIp = await _getLocalIp();
       if (_localIp == null) {
         throw Exception('Cannot get local IP');
       }
 
-      print('[Broadcast] Local IP: $_localIp');
+      _log.info('Local IP: $_localIp');
 
       // Создаём UDP socket
       _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
@@ -85,7 +88,7 @@ class BroadcastAnnouncer {
         if (burstCount >= 25) {
           // 25 * 200ms = 5 секунд
           burstTimer?.cancel();
-          print('[Broadcast] Switching to normal mode (every 1 sec)');
+          _log.info('Switching to normal mode (every 1 sec)');
 
           // Нормальный режим: каждую секунду
           _announceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -95,9 +98,9 @@ class BroadcastAnnouncer {
       });
 
       _isRunning = true;
-      print('[Broadcast] ✓ Announcer started');
+      _log.info('Announcer started');
     } catch (e) {
-      print('[Broadcast] Failed to start: $e');
+      _log.severe('Failed to start', e);
     }
   }
 
@@ -120,9 +123,9 @@ class BroadcastAnnouncer {
       final broadcast = InternetAddress('255.255.255.255');
 
       _socket!.send(data, broadcast, _broadcastPort);
-      // print('[Broadcast] → Sent announcement');
+      _log.fine('Sent announcement');
     } catch (e) {
-      print('[Broadcast] Send error: $e');
+      _log.severe('Send error', e);
     }
   }
 
@@ -154,7 +157,7 @@ class BroadcastAnnouncer {
 
       return null;
     } catch (e) {
-      print('[Broadcast] Get IP error: $e');
+      _log.severe('Get IP error', e);
       return null;
     }
   }
@@ -166,7 +169,7 @@ class BroadcastAnnouncer {
     _socket?.close();
 
     _isRunning = false;
-    print('[Broadcast] Stopped');
+    _log.info('Stopped');
   }
 
   void dispose() {

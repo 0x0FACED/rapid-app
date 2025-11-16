@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:uuid/uuid.dart';
 import '../../features/lan/domain/entities/chat_message.dart';
 import '../storage/shared_prefs_service.dart';
+
+final _log = Logger('Chat Service');
 
 @lazySingleton
 class ChatService {
@@ -29,7 +32,7 @@ class ChatService {
     try {
       final json = _prefs.getString(_chatHistoryKey);
       if (json == null || json.isEmpty) {
-        print('[ChatService] No saved history');
+        _log.info('[ChatService] No saved history');
         _messagesController.add(Map.from(_chats));
 
         return;
@@ -47,9 +50,9 @@ class ChatService {
 
       _messagesController.add(Map.from(_chats));
 
-      print('[ChatService] Loaded history for ${_chats.length} devices');
+      _log.info('[ChatService] Loaded history for ${_chats.length} devices');
     } catch (e) {
-      print('[ChatService] Failed to load history: $e');
+      _log.severe('[ChatService] Failed to load history', e);
     }
   }
 
@@ -65,9 +68,9 @@ class ChatService {
       final json = jsonEncode(toSave);
       _prefs.setString(_chatHistoryKey, json);
 
-      print('[ChatService] History saved');
+      _log.info('[ChatService] History saved');
     } catch (e) {
-      print('[ChatService] Failed to save history: $e');
+      _log.severe('[ChatService] Failed to save history', e);
     }
   }
 
@@ -104,7 +107,7 @@ class ChatService {
     // НОВОЕ: Сохраняем после каждого сообщения
     _saveHistory();
 
-    print('[ChatService] Message added and saved: ${message.text}');
+    _log.info('[ChatService] Message added and saved: ${message.text}');
   }
 
   void clearChat(String deviceId) {

@@ -1,5 +1,7 @@
 import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
+import 'package:rapid/core/logging/log_service.dart';
 import 'injection.config.dart';
 import '../network/http_server.dart';
 import '../network/broadcast_announcer.dart';
@@ -7,6 +9,8 @@ import '../mdns/device_discovery.dart';
 import '../storage/shared_prefs_service.dart';
 
 final getIt = GetIt.instance;
+final log = LogService.instance;
+final _log = Logger('DI');
 
 @InjectableInit(
   initializerName: 'init',
@@ -20,6 +24,7 @@ Future<void> configureDependencies() async {
   final prefs = getIt<SharedPrefsService>();
   await prefs.init();
 
+  LogService.instance;
   // После инициализации DI, запускаем сервер и mDNS
   await _startServices();
 }
@@ -34,7 +39,7 @@ Future<void> _startServices() async {
     final serverPort = prefs.getServerPort();
     final avatar = prefs.getDeviceAvatar();
 
-    print('[DI] Device: $deviceName ($deviceId)');
+    _log.fine('[DI] Device: $deviceName ($deviceId)');
 
     // HTTP server
     final server = getIt<HttpServerService>();
@@ -45,7 +50,7 @@ Future<void> _startServices() async {
       useHttps: useHttps,
       avatar: avatar,
     );
-    print('[DI] ✓ Server: ${server.port}');
+    _log.fine('[DI] ✓ Server: ${server.port}');
 
     // Broadcast announcer (быстро)
     final announcer = getIt<BroadcastAnnouncer>();
@@ -55,17 +60,16 @@ Future<void> _startServices() async {
       serverPort: server.port!,
       protocol: useHttps ? 'https' : 'http',
     );
-    print('[DI] ✓ Announcer started');
+    _log.fine('[DI] ✓ Announcer started');
 
     // Discovery (быстро)
     final discovery = getIt<DeviceDiscovery>();
     await discovery.start();
-    print('[DI] ✓ Discovery started');
+    _log.fine('[DI] ✓ Discovery started');
 
-    print('[DI] ✅ All services started');
+    _log.fine('[DI] ✅ All services started');
   } catch (e, stackTrace) {
-    print('[DI] ERROR: $e');
-    print(stackTrace);
+    _log.severe('[DI] ERROR', e, stackTrace);
     rethrow;
   }
 }

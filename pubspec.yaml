@@ -89,6 +89,8 @@ dependencies:
 
   logging: ^1.3.0
 
+  open_filex: ^4.7.0
+
 
 
 dev_dependencies:

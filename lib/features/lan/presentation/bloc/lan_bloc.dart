@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
 import 'package:rapid/core/services/chat_service.dart';
 import 'package:rapid/core/services/notification_service.dart';
 import 'package:rapid/core/storage/shared_prefs_service.dart';
@@ -20,6 +21,8 @@ import '../../domain/usecases/send_files.dart';
 import '../../domain/usecases/receive_files.dart';
 import 'lan_event.dart';
 import 'lan_state.dart';
+
+final _log = Logger('LAN Bloc');
 
 @injectable
 class LanBloc extends Bloc<LanEvent, LanState> {
@@ -40,6 +43,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   StreamSubscription? _devicesSubscription;
   StreamSubscription? _incomingTextsSubscription;
   Timer? _fileRefreshTimer;
+  StreamSubscription? _outgoingDownloadsSubscription;
 
   LanBloc(
     this._settingsRepository,
@@ -86,7 +90,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       _incomingTextsSubscription = _httpServer.incomingTexts.listen((
         textMessage,
       ) {
-        print(
+        _log.fine(
           '[LanBloc] Received text from ${textMessage.fromDeviceName}: ${textMessage.text}',
         );
 
@@ -102,6 +106,19 @@ class LanBloc extends Bloc<LanEvent, LanState> {
           fromDeviceId: textMessage.fromDevice,
           fromDeviceName: textMessage.fromDeviceName,
           isSentByMe: false,
+        );
+      });
+
+      _outgoingDownloadsSubscription = _httpServer.outgoingDownloads.listen((
+        download,
+      ) {
+        _log.fine(
+          'Outgoing download: ${download.fileName} (${download.fileSize} bytes) to ${download.remoteAddress}',
+        );
+
+        _notificationService.addFileSharedNotification(
+          fileName: download.fileName,
+          remoteAddress: download.remoteAddress,
         );
       });
 
@@ -169,7 +186,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
         newFiles.add(sharedFile);
         _httpServer.registerFile(sharedFile.id, sharedFile.path);
-        print(
+        _log.fine(
           '[LanBloc] Registered file ${sharedFile.id} -> ${sharedFile.path}',
         );
       }
@@ -180,9 +197,9 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         ),
       );
 
-      print('[LanBloc] Added ${newFiles.length} files to share');
+      _log.fine('[LanBloc] Added ${newFiles.length} files to share');
     } catch (e) {
-      print('[LanBloc] Pick files error: $e');
+      _log.warning('[LanBloc] Pick files error: $e');
     }
   }
 
@@ -201,33 +218,44 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
   void _onDevicesUpdated(LanDevicesUpdated event, Emitter<LanState> emit) {
     if (state is! LanLoaded) {
-      print('[LanBloc] ⚠️ State is ${state.runtimeType}, not LanLoaded');
+      _log.warning('[LanBloc] ⚠️ State is ${state.runtimeType}, not LanLoaded');
       return;
     }
 
     final currentState = state as LanLoaded;
+    final oldDevices = currentState.availableDevices;
     final devices = event.devices;
 
-    // Детальное сравнение
+    // Fast-path: если размеры списков разные
     bool hasChanges = false;
+    if (oldDevices.length != devices.length) {
+      hasChanges = true;
+    }
+
+    // Детальное сравнение
     for (final newDevice in devices) {
       final oldDevice = currentState.availableDevices
           .cast<Device?>()
           .firstWhere((d) => d?.id == newDevice.id, orElse: () => null);
 
       if (oldDevice == null) {
-        print('[LanBloc]   + NEW: ${newDevice.name}');
+        _log.fine('[LanBloc]   + NEW: ${newDevice.name}');
         hasChanges = true;
         break;
       } else if (oldDevice.name != newDevice.name) {
-        print('[LanBloc]   ~ NAME: ${oldDevice.name} → ${newDevice.name}');
+        _log.fine('[LanBloc]   ~ NAME: ${oldDevice.name} → ${newDevice.name}');
         hasChanges = true;
         break;
       } else if (oldDevice.avatar != newDevice.avatar) {
-        print('[LanBloc]   ~ AVATAR: ${newDevice.name}');
+        _log.fine('[LanBloc]   ~ AVATAR: ${newDevice.name}');
         hasChanges = true;
         break;
       }
+    }
+
+    // Если нет вообще устройств -- это тоже изменение
+    if (devices.isEmpty) {
+      hasChanges = true;
     }
 
     if (hasChanges == true) {
@@ -238,11 +266,9 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         favoriteDevices: _favoriteDevices.values.toList(),
       );
 
-      print('[LanBloc] Emitting new state...');
+      _log.fine('[LanBloc] Emitting new state...');
       emit(newState);
     }
-
-    print('[LanBloc] ========================================');
   }
 
   Future<void> _onSelectDevice(
@@ -255,14 +281,14 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
     if (event.deviceId == null) {
       _stopFileRefresh();
-      print('[LanBloc] Deselecting device');
+      _log.fine('[LanBloc] Deselecting device');
       emit(
         currentState.copyWith(
           clearSelectedDevice: true,
           clearReceivedFiles: true,
         ),
       );
-      print(
+      _log.fine(
         '[LanBloc] Device deselected, selectedDevice=${(state as LanLoaded).selectedDevice}',
       );
       return;
@@ -282,8 +308,8 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
     // 2) Потом уже асинхронно грузим файлы
     try {
-      print('[LanBloc] Selecting device: ${device.name}');
-      print('[LanBloc] Requesting files from ${device.name}...');
+      _log.fine('[LanBloc] Selecting device: ${device.name}');
+      _log.fine('[LanBloc] Requesting files from ${device.name}...');
 
       final filesData = await _apiClient.getAvailableFiles(device.baseUrl);
 
@@ -304,7 +330,9 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
       // Убедимся, что всё ещё выбрано именно это устройство
       if (latestState.selectedDevice?.id != device.id) {
-        print('[LanBloc] Device changed while loading, skipping files update');
+        _log.warning(
+          '[LanBloc] Device changed while loading, skipping files update',
+        );
         return;
       }
 
@@ -312,11 +340,11 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
       _startFileRefresh(device.id);
 
-      print(
+      _log.fine(
         '[LanBloc] Device selected: ${device.name}, files: ${receivedFiles.length}',
       );
     } catch (e) {
-      print('[LanBloc] Failed to load files: $e');
+      _log.severe('[LanBloc] Failed to load files: $e');
 
       final latestState = state;
       if (latestState is! LanLoaded) return;
@@ -358,7 +386,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     _stopFileRefresh(); // Останавливаем предыдущий таймер
 
     _fileRefreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      print('[LanBloc] Auto-refreshing files for device $deviceId');
+      _log.fine('[LanBloc] Auto-refreshing files for device $deviceId');
       add(LanRefreshDeviceFiles(deviceId));
     });
   }
@@ -380,7 +408,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
 
     // Проверяем что устройство всё ещё выбрано
     if (currentState.selectedDevice?.id != event.deviceId) {
-      print('[LanBloc] Device not selected anymore, skipping refresh');
+      _log.warning('[LanBloc] Device not selected anymore, skipping refresh');
       return;
     }
 
@@ -421,23 +449,23 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         final removed = oldIds.difference(newIds);
 
         if (added.isNotEmpty) {
-          print('[LanBloc] Files added: ${added.length}');
+          _log.fine('[LanBloc] Files added: ${added.length}');
           for (final id in added) {
             final file = receivedFiles.firstWhere((f) => f.id == id);
-            print('[LanBloc]   + ${file.name}');
+            _log.fine('[LanBloc]   + ${file.name}');
           }
         }
 
         if (removed.isNotEmpty) {
-          print('[LanBloc] Files removed: ${removed.length}');
+          _log.fine('[LanBloc] Files removed: ${removed.length}');
           for (final id in removed) {
             final file = oldFiles.firstWhere((f) => f.id == id);
-            print('[LanBloc]   - ${file.name}');
+            _log.fine('[LanBloc]   - ${file.name}');
           }
         }
 
         if (added.isEmpty && removed.isEmpty && oldCount != newCount) {
-          print('[LanBloc] Files updated: $oldCount → $newCount');
+          _log.fine('[LanBloc] Files updated: $oldCount → $newCount');
         }
 
         emit(currentState.copyWith(receivedFiles: receivedFiles));
@@ -446,7 +474,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         // print('[LanBloc] Files unchanged: $oldCount files');
       }
     } catch (e) {
-      print('[LanBloc] ✗ Failed to refresh files: $e');
+      _log.severe('[LanBloc] ✗ Failed to refresh files: $e');
       // Не показываем ошибку пользователю при auto-refresh
     }
   }
@@ -464,7 +492,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       );
 
       if (device == null) {
-        print('[LanBloc] ⚠️ Device not found: ${event.targetDeviceId}');
+        _log.warning('[LanBloc] ⚠️ Device not found: ${event.targetDeviceId}');
         // Устройство недоступно - не выполняем отправку
         return;
       }
@@ -489,9 +517,9 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         isSentByMe: true,
       );
 
-      print('[LanBloc] ✓ Text sent to ${device.name}: ${event.text}');
+      _log.fine('[LanBloc] ✓ Text sent to ${device.name}: ${event.text}');
     } catch (e) {
-      print('[LanBloc] Failed to send text: $e');
+      _log.fine('[LanBloc] Failed to send text: $e');
       // Не пробрасываем исключение дальше
     }
   }
@@ -512,7 +540,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         .toList();
 
     if (filesToSend.isEmpty) {
-      print('[LanBloc] No files to send');
+      _log.warning('[LanBloc] No files to send');
       return;
     }
 
@@ -521,14 +549,14 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       _sendFilesUseCase
           .execute(targetDevice: device, files: filesToSend)
           .catchError((e) {
-            print('[LanBloc] Send files error: $e');
+            _log.severe('[LanBloc] Send files error: $e');
           });
 
-      print(
+      _log.fine(
         '[LanBloc] Started sending ${filesToSend.length} files to ${device.name}',
       );
     } catch (e) {
-      print('[LanBloc] Error starting file send: $e');
+      _log.severe('[LanBloc] Error starting file send: $e');
     }
   }
 
@@ -546,13 +574,13 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     );
 
     if (device == null) {
-      print('[LanBloc] Device not found: ${event.sourceDeviceId}');
+      _log.warning('[LanBloc] Device not found: ${event.sourceDeviceId}');
       return;
     }
 
     try {
       // Проверяем доступность файлов
-      print('[LanBloc] Checking if files still available...');
+      _log.fine('[LanBloc] Checking if files still available...');
       final filesData = await _apiClient.getAvailableFiles(device.baseUrl);
 
       final availableFileIds = filesData.map((f) => f['id'] as String).toSet();
@@ -563,7 +591,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
           .toList();
 
       if (unavailableFiles.isNotEmpty) {
-        print(
+        _log.warning(
           '[LanBloc] ⚠️ Some files are no longer available: $unavailableFiles',
         );
 
@@ -597,7 +625,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
           [];
 
       if (filesToReceive.isEmpty) {
-        print('[LanBloc] No files to receive');
+        _log.warning('[LanBloc] No files to receive');
         return;
       }
 
@@ -618,11 +646,11 @@ class LanBloc extends Bloc<LanEvent, LanState> {
                 filePath: path, // ИСПРАВЛЕНО: Реальный путь
               );
 
-              print('[LanBloc] ✓ Downloaded: $path');
+              _log.fine('[LanBloc] ✓ Downloaded: $path');
             }
           })
           .catchError((e) {
-            print('[LanBloc] Receive files error: $e');
+            _log.severe('[LanBloc] Receive files error: $e');
 
             _notificationService.addFileDownloadFailedNotification(
               deviceName: device.name,
@@ -631,9 +659,9 @@ class LanBloc extends Bloc<LanEvent, LanState> {
             );
           });
 
-      print('[LanBloc] Started receiving ${filesToReceive.length} files');
+      _log.fine('[LanBloc] Started receiving ${filesToReceive.length} files');
     } catch (e) {
-      print('[LanBloc] Error checking files: $e');
+      _log.severe('[LanBloc] Error checking files: $e');
 
       _notificationService.addFileDownloadFailedNotification(
         deviceName: device.name,
@@ -652,19 +680,19 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     final currentState = state as LanLoaded;
 
     try {
-      print('[LanBloc] Refreshing settings...');
+      _log.fine('[LanBloc] Refreshing settings...');
 
       // Загружаем новые настройки
       final newSettings = await _settingsRepository.getSettings();
 
-      print(
+      _log.fine(
         '[LanBloc] New settings: ${newSettings.deviceName}, avatar: ${newSettings.avatar}',
       );
 
       // ВАЖНО: Сначала эмитим новое состояние
       emit(currentState.copyWith(userSettings: newSettings));
 
-      print('[LanBloc] State emitted with new settings');
+      _log.fine('[LanBloc] State emitted with new settings');
 
       // Потом перезапускаем сервисы
       await _httpServer.stop();
@@ -681,9 +709,9 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       await _deviceDiscovery.stop();
       await _deviceDiscovery.start();
 
-      print('[LanBloc] ✓ Services restarted with new settings');
+      _log.fine('[LanBloc] ✓ Services restarted with new settings');
     } catch (e) {
-      print('[LanBloc] ✗ Failed to refresh settings: $e');
+      _log.severe('[LanBloc] ✗ Failed to refresh settings: $e');
     }
   }
 
@@ -725,7 +753,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
           }),
         );
     } catch (e) {
-      print('[LanBloc] Failed to parse favorites: $e');
+      _log.severe('[LanBloc] Failed to parse favorites: $e');
       _favoriteDevices.clear();
     }
   }
@@ -737,7 +765,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
       );
       await _prefs.setString(_favoritesKey, jsonEncode(map));
     } catch (e) {
-      print('[LanBloc] Failed to save favorites: $e');
+      _log.severe('[LanBloc] Failed to save favorites: $e');
     }
   }
 
@@ -750,6 +778,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     _devicesSubscription?.cancel();
     _incomingTextsSubscription?.cancel();
     _stopFileRefresh();
+    _outgoingDownloadsSubscription?.cancel();
     return super.close();
   }
 }

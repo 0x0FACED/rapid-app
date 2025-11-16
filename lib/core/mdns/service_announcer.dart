@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+
+final _log = Logger('Service Announcer');
 
 @lazySingleton
 class ServiceAnnouncer {
@@ -36,8 +39,7 @@ class ServiceAnnouncer {
     _protocol = protocol;
 
     try {
-      print('[Announcer] ========================================');
-      print('[Announcer] Starting for: $deviceName ($deviceId)');
+      _log.info('[Announcer] Starting for: $deviceName ($deviceId)');
 
       final ipAddress = await _getWifiIpAddress();
       if (ipAddress == null) {
@@ -45,7 +47,7 @@ class ServiceAnnouncer {
       }
 
       _localAddress = InternetAddress(ipAddress);
-      print('[Announcer] WiFi IP: $ipAddress');
+      _log.info('[Announcer] WiFi IP: $ipAddress');
 
       _socket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
@@ -53,7 +55,7 @@ class ServiceAnnouncer {
         reuseAddress: true,
       );
 
-      print('[Announcer] Bound to port ${_socket!.port}');
+      _log.info('[Announcer] Bound to port ${_socket!.port}');
 
       _socket!.broadcastEnabled = true;
       _socket!.multicastHops = 255;
@@ -64,7 +66,7 @@ class ServiceAnnouncer {
       }
 
       _socket!.joinMulticast(InternetAddress(_mDnsAddress), wifiInterface);
-      print('[Announcer] ✓ Joined multicast on ${wifiInterface.name}');
+      _log.info('[Announcer] ✓ Joined multicast on ${wifiInterface.name}');
 
       // Агрессивные announcements первые 10 секунд
       int count = 0;
@@ -76,7 +78,7 @@ class ServiceAnnouncer {
 
         if (count >= 20) {
           initialTimer?.cancel();
-          print('[Announcer] Switching to normal mode (every 2 sec)');
+          _log.info('[Announcer] Switching to normal mode (every 2 sec)');
 
           _announceTimer = Timer.periodic(const Duration(seconds: 2), (_) {
             _sendAnnouncement();
@@ -85,12 +87,9 @@ class ServiceAnnouncer {
       });
 
       _isAnnouncing = true;
-      print('[Announcer] ✓ Started successfully');
-      print('[Announcer] ========================================');
+      _log.info('Started successfully');
     } catch (e, stackTrace) {
-      print('[Announcer] ✗✗✗ FAILED ✗✗✗');
-      print('[Announcer] Error: $e');
-      print(stackTrace);
+      _log.severe('FAILED to start announcer', e, stackTrace);
     }
   }
 
@@ -104,12 +103,12 @@ class ServiceAnnouncer {
       final sent = _socket!.send(packet, destination, _mDnsPort);
 
       if (sent > 0) {
-        print('[Announcer] → Sent $sent bytes');
+        _log.info('Sent $sent bytes');
       } else {
-        print('[Announcer] ✗ Send failed');
+        _log.warning('Send failed');
       }
     } catch (e) {
-      print('[Announcer] ✗ Error: $e');
+      _log.severe('Error', e);
     }
   }
 
@@ -255,7 +254,7 @@ class ServiceAnnouncer {
 
       return null;
     } catch (e) {
-      print('[Announcer] Failed to get WiFi IP: $e');
+      _log.severe('Failed to get WiFi IP', e);
       return null;
     }
   }
@@ -303,9 +302,9 @@ class ServiceAnnouncer {
       _socket = null;
       _announceTimer = null;
 
-      print('[Announcer] Stopped');
+      _log.info('Stopped');
     } catch (e) {
-      print('[Announcer] Stop error: $e');
+      _log.severe('Stop error', e);
     }
   }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:logging/logging.dart';
 import 'package:mime/mime.dart';
 import 'package:shelf_multipart/shelf_multipart.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,6 +15,8 @@ import '../constants/app_constants.dart';
 import 'certificate_manager.dart';
 import '../../features/lan/data/models/device_info_model.dart';
 import '../../features/lan/data/models/send_request_model.dart';
+
+final _log = Logger('HTTP Server');
 
 /// Модель входящего файла
 class IncomingFileModel {
@@ -49,6 +52,21 @@ class IncomingTextModel {
   });
 }
 
+/// Наш файл скачивают
+class OutgoingDownloadModel {
+  final String fileId;
+  final String fileName;
+  final int fileSize;
+  final String? remoteAddress;
+
+  OutgoingDownloadModel({
+    required this.fileId,
+    required this.fileName,
+    required this.fileSize,
+    this.remoteAddress,
+  });
+}
+
 @lazySingleton
 class HttpServerService {
   final CertificateManager _certificateManager;
@@ -65,6 +83,11 @@ class HttpServerService {
   // Callback'и для обработки запросов
   final _sendRequestController = StreamController<SendRequestModel>.broadcast();
   Stream<SendRequestModel> get sendRequests => _sendRequestController.stream;
+
+  final _fileDownloadsController =
+      StreamController<OutgoingDownloadModel>.broadcast();
+  Stream<OutgoingDownloadModel> get outgoingDownloads =>
+      _fileDownloadsController.stream;
 
   HttpServerService(this._certificateManager);
 
@@ -100,7 +123,7 @@ class HttpServerService {
         if (await file.exists()) {
           final bytes = await file.readAsBytes();
           _avatarBase64 = base64Encode(bytes);
-          print('[Server] Avatar ok: ${bytes.length} bytes');
+          _log.fine('Avatar ok: ${bytes.length} bytes');
         }
       } catch (e) {
         _avatarBase64 = null;
@@ -135,11 +158,11 @@ class HttpServerService {
 
       _isRunning = true;
 
-      print(
-        '[Server] ${useHttps ? 'HTTPS' : 'HTTP'} server started on port ${_server!.port}',
+      _log.info(
+        '${useHttps ? 'HTTPS' : 'HTTP'} server started on port ${_server!.port}',
       );
     } catch (e) {
-      print('[Server] Failed to start: $e');
+      _log.severe('Failed to start', e);
       rethrow;
     }
   }
@@ -152,7 +175,7 @@ class HttpServerService {
     _server = null;
     _isRunning = false;
 
-    print('[Server] Stopped');
+    _log.info('Stopped');
   }
 
   /// Построение роутера с endpoint'ами
@@ -230,7 +253,7 @@ class HttpServerService {
       final json = jsonDecode(body) as Map<String, dynamic>;
       final deviceInfo = DeviceInfoModel.fromJson(json);
 
-      print('[Server] Device registered: ${deviceInfo.alias}');
+      _log.info('Device registered: ${deviceInfo.alias}');
 
       // Здесь можно сохранить информацию об устройстве
       // Пока просто отвечаем OK
@@ -240,7 +263,7 @@ class HttpServerService {
         headers: {'Content-Type': 'application/json'},
       );
     } catch (e) {
-      print('[Server] Register error: $e');
+      _log.severe('Register error', e);
       return Response.badRequest(body: 'Invalid request body');
     }
   }
@@ -252,8 +275,8 @@ class HttpServerService {
       final json = jsonDecode(body) as Map<String, dynamic>;
       final sendRequest = SendRequestModel.fromJson(json);
 
-      print('[Server] Send request from: ${sendRequest.info.alias}');
-      print('[Server] Files count: ${sendRequest.files.length}');
+      _log.info('Send request from: ${sendRequest.info.alias}');
+      _log.info('Files count: ${sendRequest.files.length}');
 
       // Отправляем запрос в стрим для обработки UI
       _sendRequestController.add(sendRequest);
@@ -266,7 +289,7 @@ class HttpServerService {
         headers: {'Content-Type': 'application/json'},
       );
     } catch (e) {
-      print('[Server] Send request error: $e');
+      _log.severe('Send request error', e);
       return Response.badRequest(body: 'Invalid send request');
     }
   }
@@ -274,7 +297,7 @@ class HttpServerService {
   /// POST /api/rapid/v2/send - Подтверждение отправки
   Future<Response> _handleSend(Request request) async {
     // Здесь обрабатываем начало передачи файлов
-    print('[Server] Send confirmed');
+    _log.info('Send confirmed');
 
     return Response.ok(
       jsonEncode({'status': 'accepted'}),
@@ -284,7 +307,7 @@ class HttpServerService {
 
   /// POST /api/rapid/v2/cancel - Отмена передачи
   Future<Response> _handleCancel(Request request) async {
-    print('[Server] Transfer cancelled');
+    _log.info('Transfer cancelled');
 
     return Response.ok(
       jsonEncode({'status': 'cancelled'}),
@@ -359,7 +382,7 @@ class HttpServerService {
           await sink.close();
           savedPath = filePath;
 
-          print('[Server] File saved: $filePath ($fileSize bytes)');
+          _log.info('File saved: $filePath ($fileSize bytes)');
         }
       }
 
@@ -384,7 +407,7 @@ class HttpServerService {
         headers: {'Content-Type': 'application/json'},
       );
     } catch (e) {
-      print('[Server] Upload error: $e');
+      _log.severe('Upload error', e);
       return Response.internalServerError(body: 'Upload failed: $e');
     }
   }
@@ -409,7 +432,7 @@ class HttpServerService {
         headers: {'Content-Type': 'application/json'},
       );
     } catch (e) {
-      print('[Server] Get files error: $e');
+      _log.info('Get files error', e);
       return Response.internalServerError(body: 'Failed to get files');
     }
   }
@@ -433,7 +456,21 @@ class HttpServerService {
       final fileSize = await file.length();
       final fileName = path.basename(filePath);
 
-      print('[Server] Sending file: $fileName ($fileSize bytes)');
+      String? remoteAddress;
+      final connectionInfo =
+          request.context['shelf.io.connection_info'] as HttpConnectionInfo?;
+      remoteAddress = connectionInfo?.remoteAddress.address;
+
+      _log.info('Sending file: $fileName ($fileSize bytes)');
+
+      _fileDownloadsController.add(
+        OutgoingDownloadModel(
+          fileId: fileId,
+          fileName: fileName,
+          fileSize: fileSize,
+          remoteAddress: remoteAddress,
+        ),
+      );
 
       // Отдаём файл как stream
       return Response.ok(
@@ -445,7 +482,7 @@ class HttpServerService {
         },
       );
     } catch (e) {
-      print('[Server] Download error: $e');
+      _log.severe('Download error', e);
       return Response.internalServerError(body: 'Download failed: $e');
     }
   }
@@ -460,7 +497,7 @@ class HttpServerService {
       final fromDevice = json['fromDevice'] as String;
       final fromDeviceName = json['fromDeviceName'] as String?;
 
-      print('[Server] Received text from $fromDeviceName: $text');
+      _log.info('Received text from $fromDeviceName: $text');
 
       // Отправляем в стрим
       _incomingTextController.add(
@@ -477,7 +514,7 @@ class HttpServerService {
         headers: {'Content-Type': 'application/json'},
       );
     } catch (e) {
-      print('[Server] Send text error: $e');
+      _log.severe('Send text error', e);
       return Response.badRequest(body: 'Invalid request');
     }
   }
@@ -485,13 +522,13 @@ class HttpServerService {
   /// Зарегистрировать файл для скачивания
   void registerFile(String fileId, String filePath) {
     _availableFiles[fileId] = filePath;
-    print('[Server] Registered file for download: $fileId -> $filePath');
+    _log.info('Registered file for download: $fileId -> $filePath');
   }
 
   /// Удалить файл из доступных
   void unregisterFile(String fileId) {
     _availableFiles.remove(fileId);
-    print('[Server] Unregistered file: $fileId');
+    _log.info('Unregistered file: $fileId');
   }
 
   /// Получить список доступных файлов
@@ -522,5 +559,8 @@ class HttpServerService {
   void dispose() {
     stop();
     _sendRequestController.close();
+    _fileDownloadsController.close();
+    _incomingFilesController.close();
+    _incomingTextController.close();
   }
 }

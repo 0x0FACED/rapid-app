@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:injectable/injectable.dart';
+import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 import '../../features/lan/domain/entities/notification.dart';
+
+final _log = Logger('Notification Service');
 
 @lazySingleton
 class NotificationService {
@@ -31,9 +34,9 @@ class NotificationService {
     );
 
     _notifications.insert(0, notification); // Новые сверху
-    _notificationsController.add(_notifications);
+    _notificationsController.add(List.unmodifiable(_notifications));
 
-    print('[Notifications] Added text notification from $deviceName');
+    _log.info('[Notifications] Added text notification from $deviceName');
   }
 
   void addFileDownloadedNotification({
@@ -52,9 +55,9 @@ class NotificationService {
     );
 
     _notifications.insert(0, notification);
-    _notificationsController.add(_notifications);
+    _notificationsController.add(List.unmodifiable(_notifications));
 
-    print('[Notifications] Added file download notification: $fileName');
+    _log.info('[Notifications] Added file download notification: $fileName');
   }
 
   void addFileDownloadFailedNotification({
@@ -73,14 +76,38 @@ class NotificationService {
     );
 
     _notifications.insert(0, notification);
-    _notificationsController.add(_notifications);
+    _notificationsController.add(List.unmodifiable(_notifications));
+  }
+
+  void addFileSharedNotification({
+    required String fileName,
+    String? remoteAddress, // можно IP, если знаем
+  }) {
+    final who = remoteAddress ?? 'Unknown client';
+    final notification = AppNotification(
+      id: const Uuid().v4(),
+      type: NotificationType.fileShared,
+      title: 'File requested',
+      message: '$fileName is being downloaded by $who',
+      timestamp: DateTime.now(),
+      deviceName: who,
+      metadata: {
+        'fileName': fileName,
+        if (remoteAddress != null) 'remoteAddress': remoteAddress,
+      },
+    );
+
+    _notifications.insert(0, notification);
+    _notificationsController.add(List.unmodifiable(_notifications));
+
+    _log.info('[Notifications] Added file shared notification: $fileName');
   }
 
   void markAsRead(String notificationId) {
     final index = _notifications.indexWhere((n) => n.id == notificationId);
     if (index >= 0) {
       _notifications[index] = _notifications[index].copyWith(isRead: true);
-      _notificationsController.add(_notifications);
+      _notificationsController.add(List.unmodifiable(_notifications));
     }
   }
 
@@ -90,12 +117,12 @@ class NotificationService {
         _notifications[i] = _notifications[i].copyWith(isRead: true);
       }
     }
-    _notificationsController.add(_notifications);
+    _notificationsController.add(List.unmodifiable(_notifications));
   }
 
   void clearAll() {
     _notifications.clear();
-    _notificationsController.add(_notifications);
+    _notificationsController.add(List.unmodifiable(_notifications));
   }
 
   void dispose() {
