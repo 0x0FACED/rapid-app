@@ -202,25 +202,19 @@ class _DeviceCard extends StatelessWidget {
   }
 
   Widget _buildAvatar(BuildContext context) {
+    final bytes = device.avatarBytes;
     print('[DeviceCard] Building avatar for ${device.name}');
 
-    if (device.avatar != null && device.avatar!.isNotEmpty) {
+    if (bytes != null && bytes.isNotEmpty) {
       print('[DeviceCard]   avatar length: ${device.avatar!.length} chars');
 
-      // ИСПРАВЛЕНО: Проверяем что это base64
-      try {
-        final bytes = base64Decode(device.avatar!);
-        print('[DeviceCard]   ✓ Decoded ${bytes.length} bytes from base64');
-        return CircleAvatar(
-          radius: 28,
-          backgroundImage: MemoryImage(bytes),
-          onBackgroundImageError: (error, stackTrace) {
-            print('[DeviceCard]   ✗ Failed to load image: $error');
-          },
-        );
-      } catch (e) {
-        print('[DeviceCard]   ✗ Not a valid base64: $e');
-      }
+      return CircleAvatar(
+        radius: 28,
+        backgroundImage: MemoryImage(bytes),
+        onBackgroundImageError: (error, stackTrace) {
+          print('[DeviceCard]   ✗ Failed to load image: $error');
+        },
+      );
     } else {
       print('[DeviceCard]   avatar is null or empty');
     }

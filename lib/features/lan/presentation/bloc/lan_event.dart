@@ -129,3 +129,24 @@ class LanToggleFavorite extends LanEvent {
   @override
   List<Object?> get props => [device];
 }
+
+/// Включить/выключить LAN (сервер + discovery + announcer)
+class LanSetOnline extends LanEvent {
+  final bool isOnline;
+
+  const LanSetOnline(this.isOnline);
+
+  @override
+  List<Object?> get props => [isOnline];
+}
+
+/// Ручное добавление устройства по IP/порту
+class LanAddManualDevice extends LanEvent {
+  final String host;
+  final int port;
+
+  const LanAddManualDevice(this.host, this.port);
+
+  @override
+  List<Object?> get props => [host, port];
+}

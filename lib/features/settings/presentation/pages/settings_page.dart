@@ -448,6 +448,7 @@ class _HttpsToggle extends StatelessWidget {
       onChanged: (value) {
         context.read<SettingsBloc>().add(SettingsToggleHttps(value));
       },
+      activeThumbColor: Colors.green,
     );
   }
 }

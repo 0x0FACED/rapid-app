@@ -59,6 +59,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
   ) : super(LanInitial()) {
     on<LanInitialize>(_onInitialize);
     on<LanToggleMode>(_onToggleMode);
+    on<LanSetOnline>(_onSetOnline);
     on<LanPickFiles>(_onPickFiles);
     on<LanRemoveSharedFile>(_onRemoveSharedFile);
     on<LanDevicesUpdated>(_onDevicesUpdated);
@@ -70,6 +71,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     on<LanRefreshSettings>(_onRefreshSettings);
     on<LanRefreshDeviceFiles>(_onRefreshDeviceFiles);
     on<LanToggleFavorite>(_onToggleFavorite);
+    on<LanAddManualDevice>(_onAddManualDevice);
   }
 
   Future<void> _onInitialize(
@@ -128,6 +130,7 @@ class LanBloc extends Bloc<LanEvent, LanState> {
         LanLoaded(
           userSettings: settings,
           isShareMode: true,
+          isLanOnline: true,
           sharedFiles: [],
           availableDevices: _deviceDiscovery.devices,
           activeTransfers: _transferManager.activeTransfers.toList(),
@@ -137,6 +140,67 @@ class LanBloc extends Bloc<LanEvent, LanState> {
     } catch (e) {
       emit(LanError('Failed to initialize: $e'));
     }
+  }
+
+  Future<void> _onAddManualDevice(
+    LanAddManualDevice event,
+    Emitter<LanState> emit,
+  ) async {
+    if (state is! LanLoaded) return;
+    final currentState = state as LanLoaded;
+
+    final host = event.host;
+    final port = event.port;
+    final protocol = currentState.userSettings.useHttps ? 'https' : 'http';
+    final baseUrl = '$protocol://$host:$port';
+
+    _log.fine('[LanBloc] Manual add device: $baseUrl');
+
+    try {
+      final info = await _apiClient.getDeviceInfo(baseUrl);
+      if (info == null) {
+        _log.warning('[LanBloc] Manual add failed: /info is null');
+        // Можно бросить notificationService.addTextNotification(...)
+        return;
+      }
+
+      final existing = _findDevice(currentState.availableDevices, host, port);
+      if (existing != null) {
+        _log.fine('[LanBloc] Device already present: ${existing.name}');
+        return;
+      }
+
+      final device = Device(
+        id: info.fingerprint,
+        name: info.alias,
+        host: host,
+        port: info.port,
+        protocol: info.protocol,
+        isOnline: true,
+        lastSeen: DateTime.now(),
+        avatar: info.avatar,
+      );
+
+      final updatedDevices = List<Device>.from(currentState.availableDevices)
+        ..add(device);
+
+      emit(currentState.copyWith(availableDevices: updatedDevices));
+
+      _log.fine('[LanBloc] Manual device added: ${device.name}');
+
+      await _deviceDiscovery.addManualDevice(host: host, port: port);
+      // Если хочешь, чтобы дальше DeviceDiscovery пинговал его сам,
+      // можно добавить метод в DeviceDiscovery для регистрации ручного девайса.
+    } catch (e) {
+      _log.severe('[LanBloc] Manual add error: $e');
+    }
+  }
+
+  Device? _findDevice(List<Device> devices, String host, int port) {
+    for (final d in devices) {
+      if (d.host == host && d.port == port) return d;
+    }
+    return null;
   }
 
   void _onToggleMode(LanToggleMode event, Emitter<LanState> emit) {
@@ -149,6 +213,69 @@ class LanBloc extends Bloc<LanEvent, LanState> {
           receivedFiles: null,
         ),
       );
+    }
+  }
+
+  Future<void> _onSetOnline(LanSetOnline event, Emitter<LanState> emit) async {
+    if (state is! LanLoaded) return;
+    final currentState = state as LanLoaded;
+
+    if (currentState.isLanOnline == event.isOnline) {
+      return;
+    }
+
+    if (!event.isOnline) {
+      // Уходим оффлайн: останавливаем сервер и discovery
+      _log.fine('Going OFFLINE...');
+
+      // Можно здесь отменить все активные передачи
+      for (final t in currentState.activeTransfers) {
+        _transferManager.cancelTransfer(t.transferId);
+      }
+
+      await _httpServer.stop();
+      await _deviceDiscovery.stop();
+
+      emit(
+        currentState.copyWith(
+          isLanOnline: false,
+          availableDevices: const [], // нас и других больше не видно
+          clearSelectedDevice: true,
+          clearReceivedFiles: true,
+        ),
+      );
+
+      _log.info('Now OFFLINE');
+    } else {
+      // Включаемся онлайн: стартуем сервер и discovery с текущими настройками
+      _log.info('Going ONLINE...');
+
+      final s = currentState.userSettings;
+
+      try {
+        await _httpServer.start(
+          deviceId: s.deviceId,
+          deviceName: s.deviceName,
+          port: s.serverPort,
+          useHttps: s.useHttps,
+          avatar: s.avatar,
+        );
+
+        await _deviceDiscovery.start();
+
+        emit(
+          currentState.copyWith(
+            isLanOnline: true,
+            // availableDevices заполнится из Stream'а devicesStream
+          ),
+        );
+
+        _log.fine('[LanBloc] Now ONLINE');
+      } catch (e) {
+        _log.severe('[LanBloc] Failed to go ONLINE: $e');
+        // Можно показать нотификацию или вернуть isLanOnline обратно в false
+        emit(currentState.copyWith(isLanOnline: false));
+      }
     }
   }
 

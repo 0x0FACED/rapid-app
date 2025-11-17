@@ -14,6 +14,7 @@ class LanLoading extends LanState {}
 class LanLoaded extends LanState {
   final UserSettings userSettings;
   final bool isShareMode;
+  final bool isLanOnline;
   final List<SharedFile> sharedFiles;
   final List<Device> availableDevices;
   final Device? selectedDevice;
@@ -24,6 +25,7 @@ class LanLoaded extends LanState {
   const LanLoaded({
     required this.userSettings,
     this.isShareMode = true,
+    this.isLanOnline = true,
     this.sharedFiles = const [],
     this.availableDevices = const [],
     this.selectedDevice,
@@ -36,6 +38,7 @@ class LanLoaded extends LanState {
   LanLoaded copyWith({
     UserSettings? userSettings,
     bool? isShareMode,
+    bool? isLanOnline,
     List<SharedFile>? sharedFiles,
     List<Device>? availableDevices,
     Device? selectedDevice, // НЕПРАВИЛЬНО - не сбросит в null
@@ -48,6 +51,7 @@ class LanLoaded extends LanState {
     return LanLoaded(
       userSettings: userSettings ?? this.userSettings,
       isShareMode: isShareMode ?? this.isShareMode,
+      isLanOnline: isLanOnline ?? this.isLanOnline,
       sharedFiles: sharedFiles ?? this.sharedFiles,
       availableDevices: availableDevices ?? this.availableDevices,
       selectedDevice: clearSelectedDevice

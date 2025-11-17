@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:equatable/equatable.dart';
 
 class Device extends Equatable {
@@ -9,6 +11,7 @@ class Device extends Equatable {
   final bool isOnline;
   final DateTime lastSeen;
   final String? avatar;
+  final Uint8List? avatarBytes;
 
   const Device({
     required this.id,
@@ -19,6 +22,7 @@ class Device extends Equatable {
     required this.isOnline,
     required this.lastSeen,
     this.avatar,
+    this.avatarBytes,
   });
 
   String get baseUrl => '$protocol://$host:$port';
@@ -33,6 +37,7 @@ class Device extends Equatable {
       isOnline: json['isOnline'] as bool,
       lastSeen: DateTime.parse(json['lastSeen'] as String),
       avatar: json['avatar'] as String?,
+      avatarBytes: json['avatarBytes'] as Uint8List?,
     );
   }
 
@@ -45,6 +50,7 @@ class Device extends Equatable {
     'isOnline': isOnline,
     'lastSeen': lastSeen.toIso8601String(),
     'avatar': avatar,
+    'avatarBytes': avatarBytes,
   };
 
   Device copyWith({
@@ -56,6 +62,7 @@ class Device extends Equatable {
     bool? isOnline,
     DateTime? lastSeen,
     String? avatar,
+    Uint8List? avatarBytes,
   }) {
     return Device(
       id: id ?? this.id,
@@ -66,6 +73,7 @@ class Device extends Equatable {
       isOnline: isOnline ?? this.isOnline,
       lastSeen: lastSeen ?? this.lastSeen,
       avatar: avatar ?? this.avatar,
+      avatarBytes: avatarBytes ?? this.avatarBytes,
     );
   }
 
@@ -79,5 +87,6 @@ class Device extends Equatable {
     isOnline,
     lastSeen,
     avatar,
+    avatarBytes,
   ];
 }

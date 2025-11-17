@@ -11,6 +11,7 @@ import 'package:rapid/features/lan/presentation/bloc/lan_state.dart';
 import 'package:rapid/features/lan/presentation/bloc/lan_event.dart';
 import 'package:rapid/features/lan/presentation/pages/chat_page.dart';
 import 'package:rapid/features/lan/presentation/widgets/device_list.dart';
+import 'package:rapid/features/lan/presentation/widgets/lan_loaded.dart';
 import 'package:rapid/features/lan/presentation/widgets/shared_files_list.dart';
 
 class MainContentSection extends StatelessWidget {
@@ -135,6 +136,7 @@ class _ShareModeContent extends StatelessWidget {
 }
 
 /// Контент для режима Receive (список устройств)
+/// Контент для режима Receive (список устройств)
 class _ReceiveModeContent extends StatelessWidget {
   final List<Device> devices;
 
@@ -142,7 +144,27 @@ class _ReceiveModeContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DeviceList(devices: devices);
+    return Stack(
+      children: [
+        // Список устройств занимает всё доступное место
+        Positioned.fill(child: DeviceList(devices: devices)),
+
+        // Плавающая кнопка в правом нижнем углу списка
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FloatingActionButton(
+            mini: true,
+            onPressed: () => _showManualDeviceDialog(context),
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showManualDeviceDialog(BuildContext context) {
+    showDialog(context: context, builder: (ctx) => ManualDeviceDialog());
   }
 }
 

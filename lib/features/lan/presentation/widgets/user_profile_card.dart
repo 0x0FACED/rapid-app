@@ -10,8 +10,15 @@ import '../../../../core/services/notification_service.dart';
 
 class UserProfileCard extends StatelessWidget {
   final UserSettings settings;
+  final bool isLanOnline;
+  final ValueChanged<bool> onLanOnlineChanged;
 
-  const UserProfileCard({super.key, required this.settings});
+  const UserProfileCard({
+    super.key,
+    required this.settings,
+    required this.isLanOnline,
+    required this.onLanOnlineChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -97,78 +104,98 @@ class UserProfileCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(
                         context,
-                      ).colorScheme.onSurface.withOpacity(0.6),
+                      ).colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
                 ],
               ),
             ),
 
-            // НОВОЕ: Кнопка уведомлений с badge
-            Row(
+            // Правая колонка: online switch + favorites + notifications
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Кнопка избранного
-                IconButton(
-                  icon: const Icon(Icons.star_rounded),
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => BlocProvider.value(
-                          value: context.read<LanBloc>(),
-                          child: const FavoritesPage(),
-                        ),
-                      ),
-                    );
-                  },
-                  tooltip: 'Favorites',
+                // Компактный переключатель онлайн/оффлайн
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(width: 4),
+                    Switch(
+                      value: isLanOnline,
+                      onChanged: onLanOnlineChanged,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      //hoverColor: Colors.green,
+                      activeThumbColor: Colors.green,
+                    ),
+                  ],
                 ),
-                // Кнопка уведомлений с badge
-                StreamBuilder<List>(
-                  stream: notificationService.notificationsStream,
-                  initialData: notificationService.notifications,
-                  builder: (context, snapshot) {
-                    final unreadCount = notificationService.unreadCount;
-
-                    return Stack(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.notifications),
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const NotificationsPage(),
-                              ),
-                            );
-                          },
-                        ),
-                        if (unreadCount > 0)
-                          Positioned(
-                            right: 8,
-                            top: 8,
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
-                                shape: BoxShape.circle,
-                              ),
-                              constraints: const BoxConstraints(
-                                minWidth: 16,
-                                minHeight: 16,
-                              ),
-                              child: Text(
-                                unreadCount > 9 ? '9+' : '$unreadCount',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
+                const SizedBox(height: 8),
+                // Ряд: избранное + уведомления
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Кнопка избранных устройств
+                    IconButton(
+                      icon: const Icon(Icons.star_rounded),
+                      tooltip: 'Favorites',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const FavoritesPage(),
                           ),
-                      ],
-                    );
-                  },
+                        );
+                      },
+                    ),
+
+                    // Кнопка уведомлений с badge
+                    StreamBuilder<List>(
+                      stream: notificationService.notificationsStream,
+                      initialData: notificationService.notifications,
+                      builder: (context, snapshot) {
+                        final unreadCount = notificationService.unreadCount;
+                        return Stack(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.notifications),
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const NotificationsPage(),
+                                  ),
+                                );
+                              },
+                            ),
+                            if (unreadCount > 0)
+                              Positioned(
+                                right: 8,
+                                top: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.red,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 16,
+                                    minHeight: 16,
+                                  ),
+                                  child: Text(
+                                    unreadCount > 9 ? '9+' : '$unreadCount',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),

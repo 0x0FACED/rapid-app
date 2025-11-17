@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:injectable/injectable.dart';
 import 'package:logging/logging.dart';
 import '../network/broadcast_discovery.dart';
@@ -67,7 +69,18 @@ class DeviceDiscovery {
     _log.info('[Discovery] Started');
   }
 
+  Uint8List? _decodeAvatar(String? base64Avatar) {
+    if (base64Avatar == null || base64Avatar.isEmpty) return null;
+    try {
+      return base64Decode(base64Avatar);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _onDeviceDiscovered(DiscoveredDevice discoveredDevice) {
+    final bytes = _decodeAvatar(discoveredDevice.avatar);
+
     final existingIndex = _devices.indexWhere(
       (d) => d.id == discoveredDevice.id,
     );
@@ -83,6 +96,7 @@ class DeviceDiscovery {
         isOnline: true,
         lastSeen: DateTime.now(),
         avatar: discoveredDevice.avatar,
+        avatarBytes: bytes,
       );
 
       _devices.add(device);
@@ -120,6 +134,57 @@ class DeviceDiscovery {
     _log.info('[Discovery] Started polling ${device.name}');
   }
 
+  Future<void> addManualDevice({
+    required String host,
+    required int port,
+    String? protocolOverride,
+  }) async {
+    final useHttps = _prefs.getUseHttps();
+    final protocol = protocolOverride ?? (useHttps ? 'https' : 'http');
+
+    final baseUrl = '$protocol://$host:$port';
+    print('[Discovery] Manual add: $baseUrl');
+
+    try {
+      final info = await _apiClient.getDeviceInfo(baseUrl);
+      if (info == null) {
+        print('[Discovery] Manual add failed: /info is null');
+        return;
+      }
+
+      // Уже есть такой device?
+      final existingIndex = _devices.indexWhere(
+        (d) => d.host == host && d.port == port,
+      );
+      if (existingIndex != -1) {
+        print(
+          '[Discovery] Manual device already exists: ${_devices[existingIndex].name}',
+        );
+        return;
+      }
+
+      final device = Device(
+        id: info.fingerprint,
+        name: info.alias,
+        host: host,
+        port: info.port,
+        protocol: info.protocol,
+        isOnline: true,
+        lastSeen: DateTime.now(),
+        avatar: info.avatar,
+      );
+
+      _devices.add(device);
+      _devicesController.add(List.from(_devices));
+
+      print('Manual device added: ${device.name} ($baseUrl)');
+
+      _startPolling(device);
+    } catch (e) {
+      print('Manual add error: $e');
+    }
+  }
+
   // НОВОЕ: Ping устройства через HTTP
   Future<void> _pingDevice(Device device) async {
     try {
@@ -142,6 +207,7 @@ class DeviceDiscovery {
         port: deviceInfo.port,
         protocol: deviceInfo.protocol,
         avatar: deviceInfo.avatar,
+        avatarBytes: _decodeAvatar(deviceInfo.avatar),
         isOnline: true,
       );
 
