@@ -136,7 +136,6 @@ class _ShareModeContent extends StatelessWidget {
 }
 
 /// Контент для режима Receive (список устройств)
-/// Контент для режима Receive (список устройств)
 class _ReceiveModeContent extends StatelessWidget {
   final List<Device> devices;
 
@@ -146,10 +145,7 @@ class _ReceiveModeContent extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Список устройств занимает всё доступное место
         Positioned.fill(child: DeviceList(devices: devices)),
-
-        // Плавающая кнопка в правом нижнем углу списка
         Positioned(
           right: 16,
           bottom: 16,
@@ -164,7 +160,17 @@ class _ReceiveModeContent extends StatelessWidget {
   }
 
   void _showManualDeviceDialog(BuildContext context) {
-    showDialog(context: context, builder: (ctx) => ManualDeviceDialog());
+    final lanBloc = context.read<LanBloc>(); // существующий BLoC
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return BlocProvider.value(
+          value: lanBloc,
+          child: const ManualDeviceDialog(),
+        );
+      },
+    );
   }
 }
 

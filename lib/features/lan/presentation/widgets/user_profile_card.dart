@@ -140,9 +140,15 @@ class UserProfileCard extends StatelessWidget {
                       icon: const Icon(Icons.star_rounded),
                       tooltip: 'Favorites',
                       onPressed: () {
+                        final lanBloc = context
+                            .read<LanBloc>(); // берём существующий
+
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => const FavoritesPage(),
+                            builder: (_) => BlocProvider.value(
+                              value: lanBloc,
+                              child: const FavoritesPage(),
+                            ),
                           ),
                         );
                       },

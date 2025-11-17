@@ -28,6 +28,7 @@ class LanLoadedScaffold extends StatelessWidget {
         }
       },
       child: Scaffold(
+        resizeToAvoidBottomInset: true,
         appBar: AppBar(
           leading: selectedDevice != null
               ? IconButton(
@@ -42,38 +43,26 @@ class LanLoadedScaffold extends StatelessWidget {
           ),
           centerTitle: true,
         ),
-        body: Column(
-          children: [
-            if (selectedDevice == null) ...[
-              const UserProfileSection(),
-              const SizedBox(height: 16),
-              const ModeToggleSection(),
-              const SizedBox(height: 16),
+        body: SafeArea(
+          child: Column(
+            children: [
+              if (selectedDevice == null) ...[
+                const UserProfileSection(),
+                const SizedBox(height: 16),
+                const ModeToggleSection(),
+                const SizedBox(height: 16),
+              ],
+
+              // Наш TransfersStrip живёт отдельно на StreamBuilder
+              const TransfersStrip(),
+
+              const Expanded(child: MainContentSection()),
+
+              if (selectedDevice == null) const TextShareInput(),
             ],
-
-            // Наш TransfersStrip живёт отдельно на StreamBuilder
-            const TransfersStrip(),
-
-            const Expanded(child: MainContentSection()),
-
-            if (selectedDevice == null) const TextShareInput(),
-          ],
+          ),
         ),
       ),
-    );
-  }
-
-  void _showManualDeviceDialog(BuildContext context) {
-    final lanBloc = context.read<LanBloc>(); // берём существующий
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return BlocProvider.value(
-          value: lanBloc,
-          child: const ManualDeviceDialog(),
-        );
-      },
     );
   }
 }
