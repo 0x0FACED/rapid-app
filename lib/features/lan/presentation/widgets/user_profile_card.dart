@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rapid/features/lan/presentation/bloc/lan_bloc.dart';
 import 'package:rapid/features/lan/presentation/pages/favorites_page.dart';
@@ -12,12 +13,14 @@ class UserProfileCard extends StatelessWidget {
   final UserSettings settings;
   final bool isLanOnline;
   final ValueChanged<bool> onLanOnlineChanged;
+  final String? currentIp;
 
   const UserProfileCard({
     super.key,
     required this.settings,
     required this.isLanOnline,
     required this.onLanOnlineChanged,
+    this.currentIp,
   });
 
   @override
@@ -69,11 +72,7 @@ class UserProfileCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(
-                        Icons.smartphone,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.secondary,
-                      ),
+                      buildDeviceIcon(context),
                       const SizedBox(width: 4),
                       Text(
                         _getDeviceType(),
@@ -99,13 +98,61 @@ class UserProfileCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    'Port: ${settings.serverPort}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
+                  Builder(
+                    builder: (context) {
+                      final ip = currentIp;
+                      final hostPort = ip != null
+                          ? '$ip:${settings.serverPort}'
+                          : null;
+
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(0, 0),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                alignment: Alignment.centerLeft,
+                              ),
+                              onPressed: hostPort == null
+                                  ? null
+                                  : () {
+                                      Clipboard.setData(
+                                        ClipboardData(text: hostPort),
+                                      );
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Адрес скопирован: $hostPort',
+                                          ),
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                              child: Text(
+                                hostPort ?? 'IP не найден',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: hostPort == null
+                                          ? Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                                .withOpacity(0.6)
+                                          : Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                    ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),
@@ -209,6 +256,36 @@ class UserProfileCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget buildDeviceIcon(BuildContext context) {
+    final deviceType = _getDeviceType();
+
+    final iconColor = Theme.of(context).colorScheme.secondary;
+    const iconSize = 16.0;
+
+    if (deviceType == 'Android') {
+      return Icon(Icons.android, size: iconSize, color: iconColor);
+    } else if (deviceType == 'iPhone') {
+      return Icon(Icons.phone_iphone, size: iconSize, color: iconColor);
+    } else if (deviceType == 'Windows') {
+      return Icon(Icons.window, size: iconSize, color: iconColor);
+    } else if (deviceType == 'Linux') {
+      // Вместо Icons.linux показываем PNG из assets
+      return Image.asset(
+        'assets/linux-icon.png',
+        width: iconSize,
+        height: iconSize,
+        color: iconColor,
+        colorBlendMode: BlendMode
+            .srcIn, // Применяет цвет к png, если она монохромная с прозрачным фоном
+        fit: BoxFit.contain,
+      );
+    } else if (deviceType == 'MacOS') {
+      return Icon(Icons.laptop_mac, size: iconSize, color: iconColor);
+    } else {
+      return Icon(Icons.devices_other, size: iconSize, color: iconColor);
+    }
   }
 
   String _getInitials(String name) {

@@ -91,6 +91,7 @@ dependencies:
 
   open_filex: ^4.7.0
 
+  connectivity_plus: ^7.0.0
 
 
 dev_dependencies:
@@ -119,6 +120,9 @@ flutter:
   uses-material-design: true
 
   generate: true
+
+  assets:
+    - assets/linux-icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
