@@ -13,8 +13,10 @@ class BroadcastDiscovery {
   bool _isRunning = false;
   Timer? _cleanupTimer;
 
-  static const int _broadcastPort = 53318;
-  static const _deviceTimeout = Duration(seconds: 4); // 4 секунды таймаут
+  // LocalSend compatible settings
+  static const String _multicastAddress = '224.0.0.167';
+  static const int _port = 53317;
+  static const _deviceTimeout = Duration(seconds: 15); // LocalSend uses 15 sec
 
   final SharedPrefsService _prefs;
   final Map<String, DiscoveredDevice> _devices = {};
@@ -23,7 +25,6 @@ class BroadcastDiscovery {
   final _devicesController = StreamController<DiscoveredDevice>.broadcast();
   Stream<DiscoveredDevice> get devicesStream => _devicesController.stream;
 
-  // НОВОЕ: стрим для удалённых устройств
   final _deviceRemovedController = StreamController<String>.broadcast();
   Stream<String> get deviceRemovedStream => _deviceRemovedController.stream;
 
@@ -39,12 +40,27 @@ class BroadcastDiscovery {
 
       _socket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
-        _broadcastPort,
+        _port,
         reuseAddress: true,
         reusePort: true,
       );
 
       _socket!.broadcastEnabled = true;
+
+      // Join multicast group на всех интерфейсах
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLinkLocal: false,
+      );
+
+      for (final interface in interfaces) {
+        try {
+          _socket!.joinMulticast(InternetAddress(_multicastAddress), interface);
+          _log.fine('Joined multicast on ${interface.name}');
+        } catch (e) {
+          _log.fine('Failed to join on ${interface.name}: $e');
+        }
+      }
 
       _socket!.listen((event) {
         if (event == RawSocketEvent.read) {
@@ -55,15 +71,17 @@ class BroadcastDiscovery {
         }
       });
 
-      // Очистка каждую секунду (было 2)
-      _cleanupTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      // Cleanup каждые 2 секунды
+      _cleanupTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         _cleanupStaleDevices();
       });
 
       _isRunning = true;
-      _log.info('Listening on port $_broadcastPort');
-    } catch (e) {
-      _log.severe('Failed to start', e);
+      _log.info('✅ Listening on $_multicastAddress:$_port');
+    } catch (e, stackTrace) {
+      _log.severe('Failed to start', e, stackTrace);
+      await stop();
+      rethrow;
     }
   }
 
@@ -72,20 +90,35 @@ class BroadcastDiscovery {
       final message = utf8.decode(datagram.data);
       final json = jsonDecode(message) as Map<String, dynamic>;
 
-      if (json['type'] != 'rapid_announce') return;
+      // Check if this is LocalSend/Rapid packet
+      if (!json.containsKey('fingerprint') || !json.containsKey('alias')) {
+        return; // Not a valid packet
+      }
 
-      final deviceId = json['id'] as String;
+      final deviceId = json['fingerprint'] as String;
       final myDeviceId = _prefs.getDeviceId();
 
+      // Skip own device
       if (deviceId == myDeviceId) return;
 
+      // Handle goodbye packet
+      if (json['announce'] == false) {
+        _handleGoodbye(deviceId);
+        return;
+      }
+
+      // Validate announcement
+      if (json['announce'] != true) return;
+
+      // Extract device info
       final device = DiscoveredDevice(
         id: deviceId,
-        name: json['name'] as String,
-        host: json['host'] as String,
+        name: json['alias'] as String,
+        host: datagram.address.address, // Use sender's IP
         port: json['port'] as int,
-        //avatar: json['avatar'] as String?,
         protocol: json['protocol'] as String? ?? 'https',
+        deviceModel: json['deviceModel'] as String?,
+        deviceType: json['deviceType'] as String?,
       );
 
       final wasNew = !_devices.containsKey(deviceId);
@@ -95,10 +128,23 @@ class BroadcastDiscovery {
 
       if (wasNew) {
         _devicesController.add(device);
-        _log.info('NEW: ${device.name} at ${device.host}:${device.port}');
+        _log.info('✅ NEW: ${device.name} at ${device.host}:${device.port}');
+      } else {
+        _log.fine('Updated: ${device.name}');
       }
     } catch (e) {
       // Ignore invalid packets
+      _log.fine('Invalid packet: $e');
+    }
+  }
+
+  void _handleGoodbye(String deviceId) {
+    final device = _devices[deviceId];
+    if (device != null) {
+      _devices.remove(deviceId);
+      _lastSeen.remove(deviceId);
+      _deviceRemovedController.add(deviceId);
+      _log.info('👋 Goodbye: ${device.name}');
     }
   }
 
@@ -116,31 +162,34 @@ class BroadcastDiscovery {
       final device = _devices[deviceId];
       _devices.remove(deviceId);
       _lastSeen.remove(deviceId);
-
-      // НОВОЕ: Отправляем событие удаления
       _deviceRemovedController.add(deviceId);
-
-      _log.info('Timeout: ${device?.name ?? deviceId}');
+      _log.info('⏱️ Timeout: ${device?.name ?? deviceId}');
     }
   }
 
   Future<void> stop() async {
     if (!_isRunning) return;
 
-    _cleanupTimer?.cancel();
-    _socket?.close();
+    try {
+      _log.info('Stopping discovery...');
 
-    _devices.clear();
-    _lastSeen.clear();
-    _isRunning = false;
+      _cleanupTimer?.cancel();
+      _socket?.close();
 
-    _log.info('Stopped');
+      _devices.clear();
+      _lastSeen.clear();
+      _isRunning = false;
+
+      _log.info('Discovery stopped');
+    } catch (e) {
+      _log.severe('Stop error', e);
+    }
   }
 
   void dispose() {
     stop();
     _devicesController.close();
-    _deviceRemovedController.close(); // НОВОЕ
+    _deviceRemovedController.close();
   }
 }
 
@@ -150,7 +199,8 @@ class DiscoveredDevice {
   final String host;
   final int port;
   final String protocol;
-  final String? avatar;
+  final String? deviceModel;
+  final String? deviceType;
 
   DiscoveredDevice({
     required this.id,
@@ -158,8 +208,12 @@ class DiscoveredDevice {
     required this.host,
     required this.port,
     this.protocol = 'https',
-    this.avatar,
+    this.deviceModel,
+    this.deviceType,
   });
 
   String get baseUrl => '$protocol://$host:$port';
+
+  @override
+  String toString() => '$name ($host:$port)';
 }
