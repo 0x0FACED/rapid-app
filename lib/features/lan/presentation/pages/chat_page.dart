@@ -9,7 +9,6 @@ import '../../domain/entities/device.dart';
 import '../../domain/entities/chat_message.dart';
 import '../bloc/lan_bloc.dart';
 import '../bloc/lan_event.dart';
-import 'package:timeago/timeago.dart' as timeago;
 import 'package:flutter/services.dart'; // Для Clipboard
 
 class ChatPage extends StatefulWidget {

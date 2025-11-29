@@ -204,7 +204,7 @@ class _LogsPageState extends State<LogsPage> {
 class _LogTile extends StatefulWidget {
   final LogRecord record;
 
-  const _LogTile({super.key, required this.record});
+  const _LogTile({required this.record});
 
   @override
   State<_LogTile> createState() => _LogTileState();

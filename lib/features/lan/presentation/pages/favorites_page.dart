@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:rapid/features/lan/domain/entities/device.dart';
 import 'package:rapid/features/lan/presentation/bloc/lan_bloc.dart';
 import 'package:rapid/features/lan/presentation/bloc/lan_event.dart';
 import 'package:rapid/features/lan/presentation/bloc/lan_state.dart';
